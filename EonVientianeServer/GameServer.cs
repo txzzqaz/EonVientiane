@@ -23,6 +23,7 @@ public class GameServer
     private readonly Dictionary<string, CancellationTokenSource> _roomCountdowns = new();
     private readonly UserManager _userManager = new();
     private readonly InventoryStore _inventoryStore = new();
+    private readonly AchievementManager _achievementManager = new();
     private readonly TimeSpan _gameStartDelay = TimeSpan.FromSeconds(3);
     private readonly object _lock = new();
     
@@ -232,6 +233,25 @@ public class GameServer
                     break;
                 }
                 await HandleSetTeamAsync(client, message);
+                break;
+            
+            // 成就相关
+            case MessageType.GetAchievements:
+                if (!client.IsAuthenticated)
+                {
+                    await SendErrorAsync(client, "请先登录");
+                    break;
+                }
+                await HandleGetAchievementsAsync(client);
+                break;
+            
+            case MessageType.UpdateAchievement:
+                if (!client.IsAuthenticated)
+                {
+                    await SendErrorAsync(client, "请先登录");
+                    break;
+                }
+                await HandleUpdateAchievementAsync(client, message);
                 break;
                 
             default:
@@ -909,7 +929,8 @@ public class GameServer
         var startNotice = new GameStartedNotification
         {
             RoomId = room.RoomId,
-            StartTimeUtc = startTimeUtcOverride ?? DateTime.UtcNow
+                StartTimeUtc = startTimeUtcOverride ?? DateTime.UtcNow,
+                Players = room.GetPlayerInfoList()
         };
 
         var message = NetworkMessage.Create(MessageType.GameStarted, startNotice);
@@ -952,6 +973,107 @@ public class GameServer
         
         await client.SendMessageAsync(message);
     }
+    
+    /// <summary>
+    /// 处理获取成就请求
+    /// </summary>
+    private async Task HandleGetAchievementsAsync(ConnectedClient client)
+    {
+        try
+        {
+            var achievements = _achievementManager.GetUserAchievements(client.UserId);
+            var response = NetworkMessage.Create(MessageType.GetAchievementsResponse, new GetAchievementsResponse
+            {
+                Success = true,
+                Achievements = achievements
+            });
+            
+            await client.SendMessageAsync(response);
+            Console.WriteLine($"[Server] Sent {achievements.Count} achievements to user {client.UserId}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Error] Get achievements failed: {ex.Message}");
+            await SendErrorAsync(client, "Failed to get achievements");
+        }
+    }
+    
+    /// <summary>
+    /// 处理更新成就请求
+    /// </summary>
+    private async Task HandleUpdateAchievementAsync(ConnectedClient client, NetworkMessage message)
+    {
+        try
+        {
+            var request = message.GetData<UpdateAchievementRequest>();
+            if (request == null)
+            {
+                await SendErrorAsync(client, "Invalid update achievement request");
+                return;
+            }
+            
+            var (success, isCompleted, progress, error) = _achievementManager.UpdateAchievementProgress(
+                client.UserId,
+                request.AchievementId,
+                request.ProgressDelta
+            );
+            
+            if (!success)
+            {
+                var response = NetworkMessage.Create(MessageType.UpdateAchievementResponse, new UpdateAchievementResponse
+                {
+                    Success = false,
+                    ErrorMessage = error ?? "Failed to update achievement"
+                });
+                
+                await client.SendMessageAsync(response);
+                return;
+            }
+            
+            var response2 = NetworkMessage.Create(MessageType.UpdateAchievementResponse, new UpdateAchievementResponse
+            {
+                Success = true,
+                IsCompleted = isCompleted,
+                Progress = progress
+            });
+            
+            await client.SendMessageAsync(response2);
+            
+            // 如果成就完成，发送完成通知
+            if (isCompleted)
+            {
+                var rewards = _achievementManager.GetCompletionRewards(request.AchievementId);
+                var notification = NetworkMessage.Create(MessageType.AchievementCompleted, new AchievementCompletedNotification
+                {
+                    AchievementId = request.AchievementId,
+                    AchievementName = GetAchievementName(request.AchievementId),
+                    Rewards = rewards,
+                    CompletedTime = DateTime.UtcNow
+                });
+                
+                await client.SendMessageAsync(notification);
+                Console.WriteLine($"[Server] User {client.UserId} completed achievement {request.AchievementId}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Error] Update achievement failed: {ex.Message}");
+            await SendErrorAsync(client, "Failed to update achievement");
+        }
+    }
+    
+    /// <summary>
+    /// 获取成就名称辅助方法
+    /// </summary>
+    private string GetAchievementName(string achievementId) => achievementId switch
+    {
+        // "first_victory" => "初露锋芒",
+        // "battle_master" => "战斗好手",
+        // "item_collector" => "装备收集家",
+        // "no_death_warrior" => "无敌战士",
+        // "time_traveler" => "时间旅者",
+        _ => "未知成就"
+    };
     
     public void PrintStatus()
     {
