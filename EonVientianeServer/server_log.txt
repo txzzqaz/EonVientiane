@@ -1,0 +1,12 @@
+=================================
+  EonVientiane Game Server
+=================================
+
+Starting server...
+[Server] Started on port 7777
+
+Server is running. Available commands:
+  status  - Show server status
+  quit    - Stop server and exit
+
+> 
