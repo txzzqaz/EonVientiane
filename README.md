@@ -260,7 +260,9 @@ public interface IGamePlugin
 | [📋 文档索引](docs/INDEX.md) | 所有文档的导航页面 |
 | [🎮 游戏逻辑](docs/systems/GAME_LOGIC.md) | 游戏核心系统说明 |
 | [🎒 物品栏系统](docs/systems/INVENTORY_SYSTEM.md) | 物品栏设计文档 |
+| [🏆 成就系统](docs/ACHIEVEMENT_SYSTEM_COMPLETE.md) | 成就系统完整文档 |
 | [👥 多人游戏指南](docs/multiplayer/MULTIPLAYER_README.md) | 联机功能完整指南 |
+| [📱 移动端适配](docs/MOBILE_QUICK_START.md) | 移动端开发指南 |
 | [🚀 服务器部署](docs/deployment/SERVER_DEPLOYMENT.md) | 服务端部署教程 |
 | [🔄 重构记录](docs/refactoring/REFACTORING_COMPLETE.md) | 代码重构历史 |
 
@@ -268,8 +270,10 @@ public interface IGamePlugin
 
 - **新开发者？** 先阅读本 README
 - **了解架构？** 查看 [重构文档](docs/refactoring/REFACTORING_COMPLETE.md)
+- **成就系统？** 参考 [成就系统文档](docs/ACHIEVEMENT_SYSTEM_COMPLETE.md)
 - **部署服务器？** 参考 [部署指南](docs/deployment/SERVER_DEPLOYMENT.md)
 - **开发联机功能？** 阅读 [多人游戏文档](docs/multiplayer/MULTIPLAYER_README.md)
+- **移动端开发？** 查看 [移动端快速开始](docs/MOBILE_QUICK_START.md)
 
 ---
 
