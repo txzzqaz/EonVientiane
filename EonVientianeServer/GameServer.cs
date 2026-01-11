@@ -6,6 +6,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using EonVientiane.Shared;
+using EonVientiane;
 
 namespace EonVientianeServer;
 
@@ -235,6 +236,25 @@ public class GameServer
                 await HandleSetTeamAsync(client, message);
                 break;
             
+            // 战斗相关
+            case MessageType.BattleActionRequest:
+                if (!client.IsAuthenticated)
+                {
+                    await SendErrorAsync(client, "请先登录");
+                    break;
+                }
+                await HandleBattleActionAsync(client, message);
+                break;
+            
+            case MessageType.BattleDefenseRequest:
+                if (!client.IsAuthenticated)
+                {
+                    await SendErrorAsync(client, "请先登录");
+                    break;
+                }
+                await HandleBattleDefenseAsync(client, message);
+                break;
+            
             // 成就相关
             case MessageType.GetAchievements:
                 if (!client.IsAuthenticated)
@@ -280,9 +300,17 @@ public class GameServer
         
         if (success && !string.IsNullOrEmpty(userId) && !string.IsNullOrEmpty(token))
         {
+            var oldPlayerId = client.PlayerId;
             client.UserId = userId;
             client.AuthToken = token;
             client.PlayerName = request.Username;
+            
+            // 更新_clients字典，使用UserId作为key
+            lock (_lock)
+            {
+                _clients.Remove(oldPlayerId);
+                _clients[userId] = client;
+            }
             
             var response = NetworkMessage.Create(MessageType.UserLoginResponse, new UserLoginResponse
             {
@@ -690,7 +718,7 @@ public class GameServer
             }
             else
             {
-                room.SetPlayerReady(client.PlayerId, request.IsReady);
+                room.SetPlayerReady(client.UserId, request.IsReady);
                 client.IsReady = request.IsReady;
 
                 room.EnsureTeamsAssignedForAll();
@@ -753,8 +781,8 @@ public class GameServer
             }
             else
             {
-                room.SetPlayerTeam(client.PlayerId, request.TeamId);
-                room.EnsureTeamAssigned(client.PlayerId);
+                room.SetPlayerTeam(client.UserId, request.TeamId);
+                room.EnsureTeamAssigned(client.UserId);
             }
         }
 
@@ -784,7 +812,7 @@ public class GameServer
             if (_rooms.TryGetValue(client.CurrentRoomId, out room))
             {
                 cancelCountdown = _roomCountdowns.ContainsKey(room.RoomId) || room.Status == RoomStatus.Countdown;
-                roomEmpty = !room.RemovePlayer(client.PlayerId);
+                roomEmpty = !room.RemovePlayer(client.UserId);
                 
                 if (roomEmpty)
                 {
@@ -941,6 +969,265 @@ public class GameServer
         }
 
         await BroadcastRoomUpdateAsync(room);
+        
+        // 初始化服务器端战斗
+        await InitializeServerBattleAsync(room);
+    }
+    
+    /// <summary>
+    /// 初始化服务器端战斗
+    /// </summary>
+    private async Task InitializeServerBattleAsync(GameRoom room)
+    {
+        try
+        {
+            var clients = room.Players.ToList();
+            var serverBattle = new ServerBattle(room.RoomId, clients);
+            
+            // 获取每个玩家的装备信息
+            var playerEquipment = new Dictionary<string, List<Equipment>>();
+            
+            foreach (var client in clients)
+            {
+                var inventoryState = _inventoryStore.LoadOrCreate(client.UserId, 
+                    () => ItemInitializer.GetInitialInventory(client.UserId));
+                
+                var equippedItems = inventoryState.Items
+                    .Where(item => item.IsEquipped)
+                    .Select(item => ItemInitializer.CreateItemFromStackData(item))
+                    .OfType<Equipment>()
+                    .ToList();
+                
+                playerEquipment[client.UserId] = equippedItems;
+            }
+            
+            // 初始化战斗
+            serverBattle.InitializeBattle(playerEquipment);
+            room.CurrentBattle = serverBattle;
+            
+            Console.WriteLine($"[Server] Battle initialized for room {room.RoomName}");
+            
+            // 广播战斗初始化信息
+            await BroadcastBattleStateAsync(room, serverBattle);
+            
+            // 启动战斗循环
+            _ = RunBattleLoopAsync(room, serverBattle);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Error] Failed to initialize battle: {ex.Message}");
+            await SendErrorToRoomAsync(room, "战斗初始化失败");
+        }
+    }
+    
+    /// <summary>
+    /// 运行战斗循环
+    /// </summary>
+    private async Task RunBattleLoopAsync(GameRoom room, ServerBattle battle)
+    {
+        // 定期更新战斗状态，每秒调用一次
+        var battleUpdateInterval = 1000; // 毫秒
+        
+        while (!battle.IsBattleOver && room.Status == RoomStatus.InGame)
+        {
+            try
+            {
+                // 更新战斗逻辑
+                battle.Update();
+                
+                // 广播更新
+                await BroadcastBattleStateAsync(room, battle);
+                
+                if (battle.IsBattleOver)
+                {
+                    // 广播战斗结束
+                    await BroadcastBattleEndAsync(room, battle);
+                    break;
+                }
+                
+                await Task.Delay(battleUpdateInterval);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Error] Battle loop error: {ex.Message}");
+                break;
+            }
+        }
+    }
+    
+    /// <summary>
+    /// 广播战斗状态更新
+    /// </summary>
+    private async Task BroadcastBattleStateAsync(GameRoom room, ServerBattle battle)
+    {
+        var notification = new BattleStateUpdateNotification
+        {
+            RoomId = room.RoomId,
+            CurrentRound = battle.CurrentRound,
+            CurrentState = battle.CurrentState.ToString(),
+            CurrentCamp = battle.CurrentCamp.ToString(),
+            CurrentActionPlayerId = battle.CurrentActionPlayerId,
+            CurrentActionPlayerName = battle.CurrentActionPlayerId != null 
+                ? battle.GetPlayer(battle.CurrentActionPlayerId)?.PlayerName ?? "" 
+                : "",
+            WaitingInputPlayerId = battle.CurrentInputContext != BattleInputContext.None 
+                ? (battle.CurrentInputContext == BattleInputContext.AttackSelection ? battle.CurrentActionPlayerId : battle.CurrentDefenderPlayerId)
+                : "",
+            InputContext = battle.CurrentInputContext.ToString(),
+            IsBattleOver = battle.IsBattleOver,
+            WinnerCamp = battle.WinnerCamp?.ToString() ?? ""
+        };
+        
+        // 添加玩家状态
+        foreach (var player in battle.GetAllPlayers())
+        {
+            notification.Players.Add(new BattlePlayerStateDto
+            {
+                PlayerId = player.PlayerId,
+                PlayerName = player.PlayerName,
+                TeamId = player.Camp == PlayerCamp.Team1 ? 1 : 2,
+                CurrentHP = player.CurrentHP,
+                MaxHP = player.MaxHP,
+                ShieldLayers = player.ShieldLayers,
+                IsDead = player.IsDead,
+                EquippedDiceNames = player.GetEquippedDice().Select(d => d.Name).ToList()
+            });
+        }
+        
+        // 为等待输入的玩家添加可用选项
+        if (battle.CurrentActionPlayerId != null)
+        {
+            var availableAD = battle.GetAvailableActiveDice(battle.CurrentActionPlayerId);
+            notification.AvailableActiveDiceNames = availableAD.Select(d => d.Name).ToList();
+            
+            var availableOpponents = battle.GetAvailableOpponents();
+            notification.AvailableOpponentIds = availableOpponents.Select(p => p.PlayerId).ToList();
+        }
+        
+        if (battle.CurrentDefenderPlayerId != null)
+        {
+            var availablePD = battle.GetAvailablePassiveDice(battle.CurrentDefenderPlayerId);
+            notification.AvailablePassiveDiceNames = availablePD.Select(d => d.Name).ToList();
+        }
+        
+        // 获取新的战斗日志
+        var newLogs = battle.GetNewBattleLogs();
+        notification.NewBattleLogs = newLogs;
+        
+        var message = NetworkMessage.Create(MessageType.BattleStateUpdate, notification);
+        
+        foreach (var client in room.Players)
+        {
+            await client.SendMessageAsync(message);
+        }
+    }
+    
+    /// <summary>
+    /// 广播战斗结束
+    /// </summary>
+    private async Task BroadcastBattleEndAsync(GameRoom room, ServerBattle battle)
+    {
+        var notification = new BattleEndNotification
+        {
+            RoomId = room.RoomId,
+            WinnerCamp = battle.WinnerCamp?.ToString() ?? "",
+            BattleLogs = new List<string>(battle.BattleLog),
+            EndTimeUtc = DateTime.UtcNow
+        };
+        
+        foreach (var player in battle.GetAllPlayers())
+        {
+            notification.FinalPlayerStates.Add(new BattlePlayerStateDto
+            {
+                PlayerId = player.PlayerId,
+                PlayerName = player.PlayerName,
+                TeamId = player.Camp == PlayerCamp.Team1 ? 1 : 2,
+                CurrentHP = player.CurrentHP,
+                MaxHP = player.MaxHP,
+                ShieldLayers = player.ShieldLayers,
+                IsDead = player.IsDead,
+                EquippedDiceNames = player.GetEquippedDice().Select(d => d.Name).ToList()
+            });
+        }
+        
+        var message = NetworkMessage.Create(MessageType.BattleEnd, notification);
+        
+        foreach (var client in room.Players)
+        {
+            await client.SendMessageAsync(message);
+        }
+    }
+    
+    /// <summary>
+    /// 处理战斗行动请求
+    /// </summary>
+    private async Task HandleBattleActionAsync(ConnectedClient client, NetworkMessage message)
+    {
+        var request = message.GetData<BattleActionRequest>();
+        if (request == null || string.IsNullOrEmpty(client.CurrentRoomId))
+        {
+            await SendErrorAsync(client, "Invalid battle action request");
+            return;
+        }
+        
+        GameRoom? room = null;
+        lock (_lock)
+        {
+            _rooms.TryGetValue(client.CurrentRoomId, out room);
+        }
+        
+        if (room?.CurrentBattle == null)
+        {
+            await SendErrorAsync(client, "No active battle in room");
+            return;
+        }
+        
+        // 处理战斗行动
+        room.CurrentBattle.ProcessPlayerAttackChoice(client.UserId, request.SelectedDiceName, request.TargetPlayerId);
+        
+        Console.WriteLine($"[Server] Battle action from {client.PlayerName}: {request.SelectedDiceName} -> {request.TargetPlayerId}");
+    }
+    
+    /// <summary>
+    /// 处理战斗防守请求
+    /// </summary>
+    private async Task HandleBattleDefenseAsync(ConnectedClient client, NetworkMessage message)
+    {
+        var request = message.GetData<BattleDefenseRequest>();
+        if (request == null || string.IsNullOrEmpty(client.CurrentRoomId))
+        {
+            await SendErrorAsync(client, "Invalid battle defense request");
+            return;
+        }
+        
+        GameRoom? room = null;
+        lock (_lock)
+        {
+            _rooms.TryGetValue(client.CurrentRoomId, out room);
+        }
+        
+        if (room?.CurrentBattle == null)
+        {
+            await SendErrorAsync(client, "No active battle in room");
+            return;
+        }
+        
+        // 处理防守行动
+        room.CurrentBattle.ProcessPlayerDefenseChoice(client.UserId, request.SelectedDiceName);
+        
+        Console.WriteLine($"[Server] Battle defense from {client.PlayerName}: {request.SelectedDiceName}");
+    }
+    
+    /// <summary>
+    /// 发送错误信息给房间的所有玩家
+    /// </summary>
+    private async Task SendErrorToRoomAsync(GameRoom room, string errorMessage)
+    {
+        var message = NetworkMessage.Create(MessageType.Error, new ErrorMessage { Message = errorMessage });
+        foreach (var client in room.Players)
+        {
+            await client.SendMessageAsync(message);
+        }
     }
     
     /// <summary>
@@ -955,7 +1242,7 @@ public class GameServer
         
         lock (_lock)
         {
-            _clients.Remove(client.PlayerId);
+            _clients.Remove(client.UserId);
         }
         
         client.Disconnect();

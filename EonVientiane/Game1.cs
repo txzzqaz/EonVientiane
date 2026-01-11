@@ -29,6 +29,8 @@ public class Game1 : Game
     private LoginInputHandler _loginInputHandler;
     private InventoryInputHandler _inventoryInputHandler;
     private MultiplayerLobbyManager _lobbyManager;
+    private BattleManager _battleManager;
+    private AchievementSystem _achievementSystem;
     private bool _isLoggingIn;
     private bool _isRegistering;
     private string _authStatusMessage = string.Empty;
@@ -48,30 +50,61 @@ public class Game1 : Game
     // 输入状态
     private MouseState _previousMouseState;
 
+    // 移动端支持
+    private PlatformAdapter _platformAdapter;
+    private VirtualKeyboard _virtualKeyboard;
+
     public Game1()
     {
         _graphics = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
         
-        // 设置窗口大小
-        _graphics.PreferredBackBufferWidth = 1280;
-        _graphics.PreferredBackBufferHeight = 720;
+        // 初始化平台适配器
+        _platformAdapter = new PlatformAdapter(_graphics);
+        
+        // 设置窗口大小 - 根据平台调整
+        if (_platformAdapter.Platform == PlatformAdapter.DevicePlatform.Mobile)
+        {
+            // 移动设备: 使用竖屏分辨率
+            _graphics.PreferredBackBufferWidth = 540;
+            _graphics.PreferredBackBufferHeight = 960;
+        }
+        else
+        {
+            // 桌面: 使用宽屏分辨率
+            _graphics.PreferredBackBufferWidth = 1280;
+            _graphics.PreferredBackBufferHeight = 720;
+        }
     }
 
     protected override void Initialize()
     {
         _loginManager = new LoginManager();
-        _inputManager = new InputManager();
+        _inputManager = new InputManager(_graphics);
         _uiManager = new UIManager(MenuManager.GetMenuWidth(), MenuManager.GetButtonHeight(), 10, _graphics);
         _inventoryManager = new InventoryManager();
+        _achievementSystem = new AchievementSystem(_inventoryManager);
         _menuManager = new MenuManager(_graphics);
         _loginInputHandler = new LoginInputHandler(MenuManager.GetMenuWidth(), _inputManager);
         _inventoryInputHandler = new InventoryInputHandler(MenuManager.GetMenuWidth(), OnEquipRequested, OnUnequipRequested);
         _lobbyManager = new MultiplayerLobbyManager();
+        _battleManager = new BattleManager(_inventoryManager, MenuManager.GetMenuWidth());
 
         _lobbyManager.InventoryStateReceived += OnInventoryStateReceived;
         _lobbyManager.InventoryError += OnInventoryError;
+        _lobbyManager.GameStarted += OnGameStarted;
+        _lobbyManager.AchievementCompleted += OnServerAchievementCompleted;
+        _lobbyManager.BattleStateUpdated += OnBattleStateUpdated;
+        _lobbyManager.BattleEnded += OnBattleEnded;
+        
+        // 订阅战斗管理器事件
+        _battleManager.BattleActionRequested += OnBattleActionRequested;
+        _battleManager.BattleDefenseRequested += OnBattleDefenseRequested;
+        
+        // 订阅成就完成事件
+        _achievementSystem.AchievementCompleted += OnAchievementCompleted;
+        _achievementSystem.RewardGiven += OnRewardGiven;
 
         base.Initialize();
     }
@@ -125,8 +158,12 @@ public class Game1 : Game
                 break;
         }
 
+        // 更新战斗状态
+            // 客户端不运行本地战斗更新（多人模式由服务器驱动）
+            _battleManager.UpdateTip(gameTime);
+
         _previousMouseState = mouseState;
-        _inputManager.Update();
+        _inputManager.Update(gameTime);
 
         base.Update(gameTime);
     }
@@ -180,6 +217,14 @@ public class Game1 : Game
             }
             HandleLobbyInput(mouseState);
             ProcessLobbyKeyboardInput();
+        }
+
+        // 处理战斗输入
+        if (_currentContentView == ContentView.Battle && _battleManager != null)
+        {
+            int panelWidth = _graphics.PreferredBackBufferWidth - MenuManager.GetMenuWidth();
+            int panelHeight = _graphics.PreferredBackBufferHeight;
+            _battleManager.HandleInput(mouseState, _previousMouseState, panelWidth, panelHeight);
         }
     }
 
@@ -514,8 +559,15 @@ public class Game1 : Game
         // 绘制右侧内容区域（仅在游戏态）
         if (_currentUIState == GameUIState.Game)
         {
+            // 如果是战斗界面，绘制战斗
+            if (_currentContentView == ContentView.Battle && _battleManager != null)
+            {
+                int panelWidth = _graphics.PreferredBackBufferWidth - MenuManager.GetMenuWidth();
+                int panelHeight = _graphics.PreferredBackBufferHeight;
+                _battleManager.Draw(_spriteBatch, _buttonTexture, _buttonFont, GraphicsDevice, panelWidth, panelHeight);
+            }
             // 如果是背包界面，绘制背包
-            if (_currentContentView == ContentView.Button2)
+            else if (_currentContentView == ContentView.Button2)
             {
                 _uiManager.DrawInventoryPanel(_spriteBatch, _inventoryManager, _selectedInventoryIndex, _selectedEquipmentIndex);
             }
@@ -530,6 +582,11 @@ public class Game1 : Game
                     _lobbyRoomName,
                     _selectedRoomId,
                     _activeLobbyInputField);
+            }
+            // 成就界面
+            else if (_currentContentView == ContentView.Button4)
+            {
+                _uiManager.DrawAchievementPanel(_spriteBatch, _achievementSystem);
             }
             else
             {
@@ -592,4 +649,122 @@ public class Game1 : Game
 
         _ = _lobbyManager.UnequipItemAsync(stack.StackId);
     }
+
+    private void OnGameStarted(GameStartedNotification notification)
+    {
+        if (_battleManager != null)
+        {
+            // 使用多人战斗初始化（不再支持单人模式）
+            if (notification.Players != null && notification.Players.Count > 0)
+            {
+                string localPlayerId = _lobbyManager.IsAuthenticated 
+                    ? (_lobbyManager.CurrentRoomPlayers?.FirstOrDefault(p => p.PlayerName == _lobbyManager.PlayerName)?.PlayerId ?? "player")
+                    : "player";
+                _battleManager.InitializeMultiplayerBattle(notification.Players, localPlayerId);
+            }
+
+            _currentContentView = ContentView.Battle;
+        }
+    }
+
+    /// <summary>
+    /// 成就完成事件处理
+    /// </summary>
+    private void OnAchievementCompleted(AchievementSystem.Achievement achievement)
+    {
+        _authStatusMessage = $"成就完成: {achievement.Name}";
+        Console.WriteLine($"[Client] Achievement completed: {achievement.Name}");
+    }
+
+    /// <summary>
+    /// 奖励发放事件处理
+    /// </summary>
+    private void OnRewardGiven(AchievementSystem.Reward reward)
+    {
+        if (reward.Type == "Item")
+        {
+            _authStatusMessage += $" - 获得物品: {reward.ItemId}";
+        }
+        else if (reward.Type == "Gold")
+        {
+            _authStatusMessage += $" - 获得 {reward.Quantity} 金币";
+        }
+        Console.WriteLine($"[Client] Reward given: {reward.Type} x{reward.Quantity}");
+    }
+
+    
+
+    /// <summary>
+    /// 服务端成就完成通知处理
+    /// </summary>
+    private void OnServerAchievementCompleted(AchievementCompletedNotification notification)
+    {
+        _authStatusMessage = $"成就完成: {notification.AchievementName}!";
+        Console.WriteLine($"[Client] Server achievement completed: {notification.AchievementName}");
+        
+        foreach (var reward in notification.Rewards)
+        {
+            if (reward.Type == "Item")
+            {
+                _authStatusMessage += $" 获得: {reward.ItemId}";
+            }
+            else if (reward.Type == "Gold")
+            {
+                _authStatusMessage += $" 获得 {reward.Quantity} 金币";
+            }
+        }
+        
+        _ = _lobbyManager.RequestInventoryAsync();
+    }
+    
+    /// <summary>
+    /// 处理多人战斗状态更新
+    /// </summary>
+    private void OnBattleStateUpdated(BattleStateUpdateNotification notification)
+    {
+        if (_battleManager?.CurrentBattle == null)
+            return;
+        
+        // 应用服务器状态到本地战斗
+        _battleManager.ApplyServerBattleState(notification);
+        
+        Console.WriteLine($"[Client] Battle update - Round: {notification.CurrentRound}, State: {notification.CurrentState}");
+        Console.WriteLine($"[Client] Waiting input player: {notification.WaitingInputPlayerId}");
+    }
+    
+    /// <summary>
+    /// 处理多人战斗结束
+    /// </summary>
+    private void OnBattleEnded(BattleEndNotification notification)
+    {
+        _authStatusMessage = $"战斗结束！{notification.WinnerCamp}阵营获胜！";
+        Console.WriteLine($"[Client] Battle ended - Winner: {notification.WinnerCamp}");
+    }
+    
+    /// <summary>
+    /// 处理战斗行动请求（发送到服务器）
+    /// </summary>
+    private async void OnBattleActionRequested(string diceName, string targetPlayerId)
+    {
+        if (_lobbyManager != null)
+        {
+            await _lobbyManager.SendBattleActionAsync(diceName, targetPlayerId);
+            Console.WriteLine($"[Client] Sent battle action: {diceName} -> {targetPlayerId}");
+        }
+    }
+    
+    /// <summary>
+    /// 处理战斗防守请求（发送到服务器）
+    /// </summary>
+    private async void OnBattleDefenseRequested(string diceName)
+    {
+        if (_lobbyManager != null)
+        {
+            await _lobbyManager.SendBattleDefenseAsync(diceName);
+            Console.WriteLine($"[Client] Sent battle defense: {diceName}");
+        }
+    }
 }
+    /// <summary>
+
+    /// 服务端成就完成通知处理

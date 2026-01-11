@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using EonVientiane.Shared;
+using EonVientiane;
 
 namespace EonVientianeServer;
 
@@ -16,11 +17,11 @@ public class ItemInitializer
         var items = new List<InitialInventoryItem>
         {
             new InitialInventoryItem { ItemId = "d6_dice", ItemName = "D6", Quantity = 1 },
-            new InitialInventoryItem { ItemId = "feathered_dice", ItemName = "飞羽骰子", Quantity = 1 },
+            // 飞羽骰子已改为成就奖励
+            // new InitialInventoryItem { ItemId = "feathered_dice", ItemName = "飞羽骰子", Quantity = 1 },
             new InitialInventoryItem { ItemId = "self_accessory", ItemName = "自我", Quantity = 1 },
-            new InitialInventoryItem { ItemId = "ascension_proof", ItemName = "飞升之证", Quantity = 1 },
-            new InitialInventoryItem { ItemId = "health_potion", ItemName = "生命药水", Quantity = 10 },
-            new InitialInventoryItem { ItemId = "mana_potion", ItemName = "魔法药水", Quantity = 6 },
+            // 飞升之证已改为成就奖励
+            // new InitialInventoryItem { ItemId = "ascension_proof", ItemName = "飞升之证", Quantity = 1 },
             new InitialInventoryItem { ItemId = "gold_coin", ItemName = "金币", Quantity = 200 }
         };
         
@@ -36,6 +37,21 @@ public class ItemInitializer
         {
             "item_sword_starter",
             "item_armor_starter"
+        };
+    }
+    
+    /// <summary>
+    /// 从堆叠数据创建装备实例
+    /// </summary>
+    public static Equipment? CreateItemFromStackData(InventoryStackRecord stackData)
+    {
+        return stackData.ItemId switch
+        {
+            "d6_dice" => new D6Dice(DiceUsageType.Both),
+            "feathered_dice" => new FeatheredDice(),
+            "self_accessory" => new SelfAccessory(),
+            "ascension_proof" => new AscensionProofAccessory(),
+            _ => null
         };
     }
 }

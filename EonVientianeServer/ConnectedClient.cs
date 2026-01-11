@@ -53,8 +53,10 @@ public class ConnectedClient
             
             lock (_sendLock)
             {
+                // 原子性地写入长度前缀和消息数据
                 Stream.Write(length, 0, 4);
                 Stream.Write(data, 0, data.Length);
+                Stream.Flush();
             }
             
             await Task.CompletedTask;

@@ -12,7 +12,7 @@ namespace EonVientiane;
 /// </summary>
 public class MultiplayerLobbyManager
 {
-    private const string DefaultServerHost = "xiao.huaibi.top";
+    private const string DefaultServerHost = "127.0.0.1";
     private const int DefaultServerPort = 7777;
 
     private readonly Network.NetworkClient _networkClient;
@@ -41,6 +41,13 @@ public class MultiplayerLobbyManager
     public bool IsAuthenticated => _lobbyManager.IsAuthenticated;
     public event Action<InventoryState> InventoryStateReceived;
     public event Action<string> InventoryError;
+    public event Action<GameStartedNotification> GameStarted;
+    public event Action<List<AchievementDto>> AchievementsReceived;
+    public event Action<AchievementCompletedNotification> AchievementCompleted;
+    
+    // 战斗相关事件
+    public event Action<BattleStateUpdateNotification> BattleStateUpdated;
+    public event Action<BattleEndNotification> BattleEnded;
     
     public MultiplayerLobbyManager()
     {
@@ -62,6 +69,10 @@ public class MultiplayerLobbyManager
         _lobbyManager.RegisterSuccess += OnRegisterSuccess;
         _lobbyManager.InventoryStateReceived += OnInventoryStateReceived;
         _lobbyManager.InventoryError += OnInventoryError;
+        
+        // 订阅战斗相关事件
+        _lobbyManager.BattleStateUpdated += OnBattleStateUpdated;
+        _lobbyManager.BattleEnded += OnBattleEnded;
     }
     
     public void ConfigurePlayer(string playerName)
@@ -293,6 +304,36 @@ public class MultiplayerLobbyManager
         _statusMessage = $"选择队伍 {teamId}";
         await _lobbyManager.SetTeamAsync(teamId);
     }
+
+    /// <summary>
+    /// 获取成就列表
+    /// </summary>
+    public async Task GetAchievementsAsync()
+    {
+        if (!_networkClient.IsConnected)
+        {
+            _statusMessage = "未连接到服务器";
+            return;
+        }
+
+        _statusMessage = "获取成就中...";
+        await _lobbyManager.GetAchievementsAsync();
+    }
+
+    /// <summary>
+    /// 更新成就进度
+    /// </summary>
+    public async Task UpdateAchievementAsync(string achievementId, int progressDelta)
+    {
+        if (!_networkClient.IsConnected)
+        {
+            _statusMessage = "未连接到服务器";
+            return;
+        }
+
+        await _lobbyManager.UpdateAchievementAsync(achievementId, progressDelta);
+    }
+
     private void OnConnected()
     {
         _reconnectAttempts = 0;
@@ -349,6 +390,7 @@ public class MultiplayerLobbyManager
     private void OnGameStarted(GameStartedNotification notification)
     {
         _statusMessage = "Game starting...";
+        GameStarted?.Invoke(notification);
     }
 
     private void OnGameStartCountdown(GameStartCountdownNotification notification)
@@ -417,6 +459,44 @@ public class MultiplayerLobbyManager
             if (_networkClient.IsConnected)
                 break;
         }
+    }
+    
+    /// <summary>
+    /// 发送战斗行动
+    /// </summary>
+    public async Task SendBattleActionAsync(string selectedDiceName, string targetPlayerId)
+    {
+        if (!_networkClient.IsConnected)
+        {
+            _statusMessage = "连接已断开";
+            return;
+        }
+        
+        await _lobbyManager.SendBattleActionAsync(selectedDiceName, targetPlayerId);
+    }
+    
+    /// <summary>
+    /// 发送战斗防守
+    /// </summary>
+    public async Task SendBattleDefenseAsync(string selectedDiceName)
+    {
+        if (!_networkClient.IsConnected)
+        {
+            _statusMessage = "连接已断开";
+            return;
+        }
+        
+        await _lobbyManager.SendBattleDefenseAsync(selectedDiceName);
+    }
+    
+    private void OnBattleStateUpdated(BattleStateUpdateNotification notification)
+    {
+        BattleStateUpdated?.Invoke(notification);
+    }
+    
+    private void OnBattleEnded(BattleEndNotification notification)
+    {
+        BattleEnded?.Invoke(notification);
     }
 }
 

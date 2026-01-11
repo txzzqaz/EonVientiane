@@ -31,6 +31,13 @@ public enum MessageType
     UnequipItemResponse,
     InventoryUpdated,
     
+    // 成就相关
+    GetAchievements,
+    GetAchievementsResponse,
+    UpdateAchievement,
+    UpdateAchievementResponse,
+    AchievementCompleted,
+    
     // 大厅相关
     GetRoomList,
     RoomListResponse,
@@ -51,6 +58,17 @@ public enum MessageType
     GameAction,
     GameState,
     GameEnd,
+    
+    // 战斗相关
+    BattleInitialize,
+    BattleStarted,
+    BattleStateUpdate,
+    BattleActionRequest,
+    BattleActionResponse,
+    BattleDefenseRequest,
+    BattleDefenseResponse,
+    BattleLog,
+    BattleEnd,
     
     // 聊天
     ChatMessage,
@@ -202,6 +220,7 @@ public class GameStartedNotification
 {
     public string RoomId { get; set; } = string.Empty;
     public DateTime StartTimeUtc { get; set; } = DateTime.UtcNow;
+    public List<PlayerInfo> Players { get; set; } = new();
 }
 
 /// <summary>
@@ -343,4 +362,159 @@ public class InventoryActionResponse
 public class ErrorMessage
 {
     public string Message { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 成就数据（用于网络传输）
+/// </summary>
+public class AchievementDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public int Progress { get; set; }
+    public int RequiredProgress { get; set; }
+    public bool IsCompleted { get; set; }
+    public DateTime? CompletedTime { get; set; }
+}
+
+/// <summary>
+/// 获取成就请求
+/// </summary>
+public class GetAchievementsRequest
+{
+    public string UserId { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 获取成就响应
+/// </summary>
+public class GetAchievementsResponse
+{
+    public bool Success { get; set; }
+    public List<AchievementDto> Achievements { get; set; } = new();
+    public string? ErrorMessage { get; set; }
+}
+
+/// <summary>
+/// 更新成就请求
+/// </summary>
+public class UpdateAchievementRequest
+{
+    public string UserId { get; set; } = string.Empty;
+    public string AchievementId { get; set; } = string.Empty;
+    public int ProgressDelta { get; set; }
+}
+
+/// <summary>
+/// 更新成就响应
+/// </summary>
+public class UpdateAchievementResponse
+{
+    public bool Success { get; set; }
+    public bool IsCompleted { get; set; }
+    public int Progress { get; set; }
+    public string? ErrorMessage { get; set; }
+}
+
+/// <summary>
+/// 成就完成通知
+/// </summary>
+public class AchievementCompletedNotification
+{
+    public string AchievementId { get; set; } = string.Empty;
+    public string AchievementName { get; set; } = string.Empty;
+    public List<RewardDto> Rewards { get; set; } = new();
+    public DateTime CompletedTime { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// 奖励数据（用于网络传输）
+/// </summary>
+public class RewardDto
+{
+    public string Type { get; set; } = string.Empty;
+    public string ItemId { get; set; } = string.Empty;
+    public int Quantity { get; set; }
+}
+/// <summary>
+/// 玩家状态数据（用于网络传输）
+/// </summary>
+public class BattlePlayerStateDto
+{
+    public string PlayerId { get; set; } = string.Empty;
+    public string PlayerName { get; set; } = string.Empty;
+    public int TeamId { get; set; }
+    public int CurrentHP { get; set; }
+    public int MaxHP { get; set; }
+    public int ShieldLayers { get; set; }
+    public bool IsDead { get; set; }
+    public List<string> EquippedDiceNames { get; set; } = new();
+}
+
+/// <summary>
+/// 战斗初始化通知
+/// </summary>
+public class BattleInitializeNotification
+{
+    public string RoomId { get; set; } = string.Empty;
+    public List<BattlePlayerStateDto> Players { get; set; } = new();
+    public int CurrentRound { get; set; }
+    public string CurrentCamp { get; set; } = string.Empty;
+    public DateTime StartTimeUtc { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// 战斗状态更新通知
+/// </summary>
+public class BattleStateUpdateNotification
+{
+    public string RoomId { get; set; } = string.Empty;
+    public List<BattlePlayerStateDto> Players { get; set; } = new();
+    public int CurrentRound { get; set; }
+    public string CurrentState { get; set; } = string.Empty;
+    public string CurrentCamp { get; set; } = string.Empty;
+    public string CurrentActionPlayerId { get; set; } = string.Empty;
+    public string CurrentActionPlayerName { get; set; } = string.Empty;
+    public string WaitingInputPlayerId { get; set; } = string.Empty;
+    public string InputContext { get; set; } = string.Empty;
+    public List<string> AvailableActiveDiceNames { get; set; } = new();
+    public List<string> AvailableOpponentIds { get; set; } = new();
+    public List<string> AvailablePassiveDiceNames { get; set; } = new();
+    public List<string> NewBattleLogs { get; set; } = new();
+    public bool IsBattleOver { get; set; }
+    public string WinnerCamp { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 战斗行动请求
+/// </summary>
+public class BattleActionRequest
+{
+    public string RoomId { get; set; } = string.Empty;
+    public string PlayerId { get; set; } = string.Empty;
+    public string SelectedDiceName { get; set; } = string.Empty;
+    public string TargetPlayerId { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 防守行动请求
+/// </summary>
+public class BattleDefenseRequest
+{
+    public string RoomId { get; set; } = string.Empty;
+    public string PlayerId { get; set; } = string.Empty;
+    public string SelectedDiceName { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 战斗结束通知
+/// </summary>
+public class BattleEndNotification
+{
+    public string RoomId { get; set; } = string.Empty;
+    public string WinnerCamp { get; set; } = string.Empty;
+    public List<BattlePlayerStateDto> FinalPlayerStates { get; set; } = new();
+    public List<string> BattleLogs { get; set; } = new();
+    public DateTime EndTimeUtc { get; set; } = DateTime.UtcNow;
 }

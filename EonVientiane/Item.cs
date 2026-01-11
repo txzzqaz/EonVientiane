@@ -354,7 +354,7 @@ public class FeatheredDice : Dice
     /// <returns>闪避点数</returns>
     public int RollWithATKP(int atkp)
     {
-        int dicefaces = Counter + atkp;
+        int dicefaces = Counter + (atkp*2);
         int result = _random.Next(1, dicefaces + 1);
         
         // 使用后计数器临时+1

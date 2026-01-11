@@ -1,19 +1,47 @@
+using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using System;
 
 namespace EonVientiane;
 
 /// <summary>
-/// 输入管理器 - 处理键盘和鼠标输入
+/// 输入管理器 - 处理键盘、鼠标和触摸输入
 /// </summary>
 public class InputManager
 {
     public KeyboardState PreviousKeyboardState { get; private set; }
-    
-    public void Update()
+    public MouseState PreviousMouseState { get; private set; }
+    public TouchInputManager TouchInput { get; private set; }
+    public PlatformAdapter PlatformAdapter { get; private set; }
+
+    private bool _isTouchDevice = false;
+
+    public InputManager(GraphicsDeviceManager graphics = null)
+    {
+        TouchInput = new TouchInputManager();
+        
+        if (graphics != null)
+        {
+            PlatformAdapter = new PlatformAdapter(graphics);
+            _isTouchDevice = PlatformAdapter.Platform == PlatformAdapter.DevicePlatform.Mobile;
+        }
+    }
+
+    public void Update(GameTime gameTime)
     {
         PreviousKeyboardState = Keyboard.GetState();
+        PreviousMouseState = Mouse.GetState();
+        
+        if (TouchInput != null)
+        {
+            TouchInput.Update(gameTime);
+        }
     }
+
+    /// <summary>
+    /// 判断设备是否为触摸设备
+    /// </summary>
+    public bool IsTouchDevice => _isTouchDevice;
     
     /// <summary>
     /// 处理键盘输入

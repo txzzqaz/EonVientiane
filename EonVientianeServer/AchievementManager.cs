@@ -37,14 +37,16 @@ public class AchievementManager
     /// </summary>
     private void InitializeDefaultAchievements()
     {
-        // var defaultAchievementIds = new[]
-        // {
-        //     "first_victory",
-        //     "battle_master",
-        //     "item_collector",
-        //     "no_death_warrior",
-        //     "time_traveler"
-        // };
+        var defaultAchievementIds = new[]
+        {
+            "first_defense",
+            "perfect_victory",
+            // "first_victory",
+            // "battle_master",
+            // "item_collector",
+            // "no_death_warrior",
+            // "time_traveler"
+        };
 
         // 预初始化测试用户的成就
         var testUsers = new[] { "admin", "user", "test" };
@@ -136,25 +138,27 @@ public class AchievementManager
     private UserAchievements CreateDefaultAchievementsForUser(string userId)
     {
         var userAchievements = new UserAchievements { UserId = userId };
-        // var defaultAchievementIds = new[]
-        // {
-        //     "first_victory",
-        //     "battle_master",
-        //     "item_collector",
-        //     "no_death_warrior",
-        //     "time_traveler"
-        // };
+        var defaultAchievementIds = new[]
+        {
+            "first_defense",
+            "perfect_victory",
+            // "first_victory",
+            // "battle_master",
+            // "item_collector",
+            // "no_death_warrior",
+            // "time_traveler"
+        };
 
-        // foreach (var achievementId in defaultAchievementIds)
-        // {
-        //     userAchievements.Achievements[achievementId] = new AchievementProgress
-        //     {
-        //         Id = achievementId,
-        //         Progress = 0,
-        //         IsCompleted = false,
-        //         CompletedTime = null
-        //     };
-        // }
+        foreach (var achievementId in defaultAchievementIds)
+        {
+            userAchievements.Achievements[achievementId] = new AchievementProgress
+            {
+                Id = achievementId,
+                Progress = 0,
+                IsCompleted = false,
+                CompletedTime = null
+            };
+        }
 
         _userAchievements[userId] = userAchievements;
         return userAchievements;
@@ -165,6 +169,8 @@ public class AchievementManager
     /// </summary>
     private string GetAchievementName(string achievementId) => achievementId switch
     {
+        "first_defense" => "第一次防御",
+        "perfect_victory" => "绝对碾压",
         // "first_victory" => "初露锋芒",
         // "battle_master" => "战斗好手",
         // "item_collector" => "装备收集家",
@@ -178,6 +184,8 @@ public class AchievementManager
     /// </summary>
     private string GetAchievementDescription(string achievementId) => achievementId switch
     {
+        "first_defense" => "这是攻，这是防",
+        "perfect_victory" => "这是攻，这是防",
         // "first_victory" => "赢得第一场战斗",
         // "battle_master" => "赢得10场战斗",
         // "item_collector" => "收集20件装备",
@@ -191,6 +199,8 @@ public class AchievementManager
     /// </summary>
     private int GetAchievementRequirement(string achievementId) => achievementId switch
     {
+        "first_defense" => 1,
+        "perfect_victory" => 1,
         // "first_victory" => 1,
         // "battle_master" => 10,
         // "item_collector" => 20,
@@ -206,6 +216,14 @@ public class AchievementManager
     {
         return achievementId switch
         {
+            "first_defense" => new List<RewardDto>
+            {
+                new RewardDto { Type = "Item", ItemId = "feathered_dice", Quantity = 1 }
+            },
+            "perfect_victory" => new List<RewardDto>
+            {
+                new RewardDto { Type = "Item", ItemId = "ascension_proof", Quantity = 1 }
+            },
             // "first_victory" => new List<RewardDto>
             // {
             //     new RewardDto { Type = "Item", ItemId = "item_reward_1", Quantity = 1 },

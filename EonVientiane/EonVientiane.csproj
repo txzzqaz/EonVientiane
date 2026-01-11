@@ -1,10 +1,29 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
+    <!-- 根据平台条件设置 OutputType -->
+    <OutputType Condition="'$(TargetRID)' == 'win-x64' or '$(TargetRID)' == '' or '$(TargetRID)' == 'win'">WinExe</OutputType>
+    <OutputType Condition="'$(TargetRID)' == 'osx-x64' or '$(TargetRID)' == 'osx-arm64'">Exe</OutputType>
+    <OutputType Condition="'$(TargetRID)' == 'linux-x64'">Exe</OutputType>
+    
     <TargetFramework>net9.0</TargetFramework>
     <RollForward>Major</RollForward>
     <PublishReadyToRun>false</PublishReadyToRun>
     <TieredCompilation>false</TieredCompilation>
+    
+    <!-- 移动端支持配置 -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!-- 平台特定的属性 -->
+  <PropertyGroup Condition="'$(TargetRID)' == 'ios' or '$(TargetRID)' == 'iossimulator'">
+    <RuntimeIdentifier>ios-arm64</RuntimeIdentifier>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetRID)' == 'android'">
+    <RuntimeIdentifier>android-arm64</RuntimeIdentifier>
+    <OutputType>Library</OutputType>
   </PropertyGroup>
   <PropertyGroup>
     <ApplicationManifest>app.manifest</ApplicationManifest>

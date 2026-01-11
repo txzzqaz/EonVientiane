@@ -22,6 +22,7 @@ public class NetworkClient
     private CancellationTokenSource _heartbeatCancellation;
     private const int HeartbeatIntervalMs = 5000; // 5秒发送一次心跳
     private const int HeartbeatTimeoutMs = 15000; // 15秒无心跳则断开连接
+    private readonly object _sendLock = new(); // 保护发送操作的线程安全性
     
     public bool IsConnected => _isConnected && _client?.Connected == true;
     
@@ -97,9 +98,15 @@ public class NetworkClient
             var data = Encoding.UTF8.GetBytes(json);
             var length = BitConverter.GetBytes(data.Length);
             
-            await _stream.WriteAsync(length, 0, 4);
-            await _stream.WriteAsync(data, 0, data.Length);
-            await _stream.FlushAsync();
+            lock (_sendLock)
+            {
+                // 原子性地写入长度前缀和消息数据
+                _stream.Write(length, 0, 4);
+                _stream.Write(data, 0, data.Length);
+                _stream.Flush();
+            }
+            
+            await Task.CompletedTask;
         }
         catch (Exception ex)
         {

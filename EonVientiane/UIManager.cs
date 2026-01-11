@@ -954,6 +954,139 @@ public class UIManager
         
         spriteBatch.End();
     }
+
+    /// <summary>
+    /// 绘制成就面板
+    /// </summary>
+    public void DrawAchievementPanel(SpriteBatch spriteBatch, AchievementSystem achievementSystem)
+    {
+        int panelX = _menuWidth;
+        int panelY = 0;
+        int panelWidth = _graphics.PreferredBackBufferWidth - _menuWidth;
+        int panelHeight = _graphics.PreferredBackBufferHeight;
+
+        Rectangle panelRect = new Rectangle(panelX, panelY, panelWidth, panelHeight);
+
+        spriteBatch.Begin();
+
+        // 背景
+        spriteBatch.Draw(_buttonTexture, panelRect, Color.DimGray * 0.6f);
+
+        // 标题
+        string title = "成就系统";
+        if (_buttonFont != null)
+        {
+            spriteBatch.DrawString(_buttonFont, title, new Vector2(panelX + 30, panelY + 20), Color.Gold, 0f, Vector2.Zero, 1.2f, SpriteEffects.None, 0f);
+        }
+
+        // 获取成就完成度统计
+        var achievements = achievementSystem.GetAllAchievements();
+        var stats = achievementSystem.GetCompletionStats();
+
+        // 绘制进度条
+        int progressBarX = panelX + 30;
+        int progressBarY = panelY + 60;
+        int progressBarWidth = panelWidth - 60;
+        int progressBarHeight = 30;
+
+        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, 
+            new Rectangle(progressBarX, progressBarY, progressBarWidth, progressBarHeight), 
+            Color.Black, 2);
+
+        // 绘制进度填充
+        int filledWidth = (int)(progressBarWidth * (stats.percentage / 100f));
+        spriteBatch.Draw(_buttonTexture, 
+            new Rectangle(progressBarX + 2, progressBarY + 2, filledWidth - 4, progressBarHeight - 4),
+            Color.LimeGreen * 0.7f);
+
+        // 绘制进度文字
+        if (_buttonFont != null)
+        {
+            string progressText = $"{stats.completed}/{stats.total} ({stats.percentage:F1}%)";
+            Vector2 textSize = _buttonFont.MeasureString(progressText);
+            spriteBatch.DrawString(_buttonFont, progressText,
+                new Vector2(progressBarX + progressBarWidth / 2 - textSize.X / 2, progressBarY + 6),
+                Color.White);
+        }
+
+        // 绘制成就列表
+        int achievementStartY = progressBarY + progressBarHeight + 30;
+        int achievementItemHeight = 80;
+        int achievementSpacing = 10;
+        int achievementDisplayCount = (panelHeight - achievementStartY - 30) / (achievementItemHeight + achievementSpacing);
+
+        for (int i = 0; i < Math.Min(achievementDisplayCount, achievements.Count); i++)
+        {
+            var achievement = achievements[i];
+            int itemY = achievementStartY + i * (achievementItemHeight + achievementSpacing);
+
+            DrawAchievementItem(spriteBatch, panelX + 20, itemY, panelWidth - 40, achievementItemHeight, achievement);
+        }
+
+        spriteBatch.End();
+    }
+
+    /// <summary>
+    /// 绘制单个成就条目
+    /// </summary>
+    private void DrawAchievementItem(SpriteBatch spriteBatch, int x, int y, int width, int height, AchievementSystem.Achievement achievement)
+    {
+        // 背景框
+        Color bgColor = achievement.IsCompleted ? Color.DarkGreen * 0.5f : Color.DarkSlateGray * 0.5f;
+        spriteBatch.Draw(_buttonTexture, new Rectangle(x, y, width, height), bgColor);
+
+        // 边框
+        Color borderColor = achievement.IsCompleted ? Color.LimeGreen : Color.Gray;
+        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, new Rectangle(x, y, width, height), borderColor, 2);
+
+        int contentX = x + 15;
+        int contentY = y + 10;
+        int contentWidth = width - 30;
+
+        if (_buttonFont != null)
+        {
+            // 成就名称
+            Color nameColor = achievement.IsCompleted ? Color.Gold : Color.White;
+            spriteBatch.DrawString(_buttonFont, achievement.Name, 
+                new Vector2(contentX, contentY), nameColor);
+
+            // 成就描述
+            spriteBatch.DrawString(_buttonFont, achievement.Description,
+                new Vector2(contentX, contentY + 25), Color.LightGray, 0f, Vector2.Zero, 0.8f, SpriteEffects.None, 0f);
+
+            // 进度条
+            int progressBarWidth = contentWidth;
+            int progressBarHeight = 15;
+            int progressBarY = contentY + 50;
+
+            DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture,
+                new Rectangle(contentX, progressBarY, progressBarWidth, progressBarHeight),
+                Color.Black, 1);
+
+            int filledWidth = (int)(progressBarWidth * (achievement.Progress / (float)achievement.RequiredProgress));
+            Color progressColor = achievement.IsCompleted ? Color.LimeGreen : Color.SteelBlue;
+            spriteBatch.Draw(_buttonTexture,
+                new Rectangle(contentX + 1, progressBarY + 1, Math.Max(1, filledWidth - 2), progressBarHeight - 2),
+                progressColor);
+
+            // 进度文字
+            string progressText = $"{achievement.Progress}/{achievement.RequiredProgress}";
+            Vector2 progressTextSize = _buttonFont.MeasureString(progressText);
+            spriteBatch.DrawString(_buttonFont, progressText,
+                new Vector2(contentX + progressBarWidth / 2 - progressTextSize.X / 2, progressBarY + 1),
+                Color.White, 0f, Vector2.Zero, 0.7f, SpriteEffects.None, 0f);
+
+            // 完成标记
+            if (achievement.IsCompleted)
+            {
+                string completedText = "已完成";
+                Vector2 completedSize = _buttonFont.MeasureString(completedText);
+                spriteBatch.DrawString(_buttonFont, completedText,
+                    new Vector2(contentX + contentWidth - completedSize.X, contentY + 25),
+                    Color.LimeGreen, 0f, Vector2.Zero, 0.8f, SpriteEffects.None, 0f);
+            }
+        }
+    }
 }
 
 public struct LobbyLayout

@@ -20,15 +20,21 @@ public class GameRoom
     private string? _hostPlayerId;
     private static readonly Random _random = new();
     
+    /// <summary>
+    /// 关联的服务器端战斗（多人战斗）
+    /// </summary>
+    public ServerBattle? CurrentBattle { get; set; }
+    
     public GameRoom(string roomId, string roomName, int maxPlayers, ConnectedClient host)
     {
         RoomId = roomId;
         RoomName = roomName;
         MaxPlayers = maxPlayers;
         Status = RoomStatus.Waiting;
+        CurrentBattle = null;
         
-        _hostPlayerId = host.PlayerId;
-        _players[host.PlayerId] = host;
+        _hostPlayerId = host.UserId;
+        _players[host.UserId] = host;
         host.TeamId = 1;
     }
     
@@ -47,7 +53,7 @@ public class GameRoom
         if (Status == RoomStatus.InGame)
             return false;
             
-        _players[client.PlayerId] = client;
+        _players[client.UserId] = client;
         client.CurrentRoomId = RoomId;
         client.TeamId = GetBalancedTeamId();
             

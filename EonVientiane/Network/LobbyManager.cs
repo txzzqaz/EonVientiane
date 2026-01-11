@@ -32,6 +32,14 @@ public class LobbyManager
     public event Action RegisterSuccess;
     public event Action<InventoryState> InventoryStateReceived;
     public event Action<string> InventoryError;
+    public event Action<List<AchievementDto>> AchievementsReceived;
+    public event Action<AchievementCompletedNotification> AchievementCompleted;
+    
+    // 战斗相关事件
+    public event Action<BattleStateUpdateNotification> BattleStateUpdated;
+    public event Action<BattleEndNotification> BattleEnded;
+    
+    public string PlayerName { get; private set; }
     
     public LobbyManager(NetworkClient networkClient)
     {
@@ -269,10 +277,99 @@ public class LobbyManager
             case MessageType.GameStartCountdown:
                 HandleGameStartCountdown(message);
                 break;
+            
+            // 战斗相关
+            case MessageType.BattleStateUpdate:
+                HandleBattleStateUpdate(message);
+                break;
+            
+            case MessageType.BattleEnd:
+                HandleBattleEnd(message);
+                break;
+            
+            // 成就相关
+            case MessageType.GetAchievementsResponse:
+                HandleGetAchievementsResponse(message);
+                break;
+            
+            case MessageType.UpdateAchievementResponse:
+                HandleUpdateAchievementResponse(message);
+                break;
+            
+            case MessageType.AchievementCompleted:
+                HandleAchievementCompleted(message);
+                break;
                 
             case MessageType.Error:
                 HandleError(message);
                 break;
+        }
+    }
+    
+    /// <summary>
+    /// 发送战斗行动请求
+    /// </summary>
+    public async Task SendBattleActionAsync(string selectedDiceName, string targetPlayerId)
+    {
+        if (!IsAuthenticated || string.IsNullOrEmpty(CurrentRoom?.RoomId))
+            return;
+        
+        var request = new BattleActionRequest
+        {
+            RoomId = CurrentRoom.RoomId,
+            PlayerId = UserId,
+            SelectedDiceName = selectedDiceName,
+            TargetPlayerId = targetPlayerId ?? ""
+        };
+        
+        var message = NetworkMessage.Create(MessageType.BattleActionRequest, request);
+        await _networkClient.SendMessageAsync(message);
+        System.Diagnostics.Debug.WriteLine($"[LobbyManager] Battle action sent: {selectedDiceName} -> {targetPlayerId}");
+    }
+    
+    /// <summary>
+    /// 发送战斗防守请求
+    /// </summary>
+    public async Task SendBattleDefenseAsync(string selectedDiceName)
+    {
+        if (!IsAuthenticated || string.IsNullOrEmpty(CurrentRoom?.RoomId))
+            return;
+        
+        var request = new BattleDefenseRequest
+        {
+            RoomId = CurrentRoom.RoomId,
+            PlayerId = UserId,
+            SelectedDiceName = selectedDiceName
+        };
+        
+        var message = NetworkMessage.Create(MessageType.BattleDefenseRequest, request);
+        await _networkClient.SendMessageAsync(message);
+        System.Diagnostics.Debug.WriteLine($"[LobbyManager] Battle defense sent: {selectedDiceName}");
+    }
+    
+    /// <summary>
+    /// 处理战斗状态更新
+    /// </summary>
+    private void HandleBattleStateUpdate(NetworkMessage message)
+    {
+        var notification = message.GetData<BattleStateUpdateNotification>();
+        if (notification != null)
+        {
+            System.Diagnostics.Debug.WriteLine($"[LobbyManager] Battle state update received");
+            BattleStateUpdated?.Invoke(notification);
+        }
+    }
+    
+    /// <summary>
+    /// 处理战斗结束
+    /// </summary>
+    private void HandleBattleEnd(NetworkMessage message)
+    {
+        var notification = message.GetData<BattleEndNotification>();
+        if (notification != null)
+        {
+            System.Diagnostics.Debug.WriteLine($"[LobbyManager] Battle ended: {notification.WinnerCamp}");
+            BattleEnded?.Invoke(notification);
         }
     }
     
@@ -455,6 +552,73 @@ public class LobbyManager
         if (countdown != null)
         {
             GameStartCountdown?.Invoke(countdown);
+        }
+    }
+
+    /// <summary>
+    /// 获取成就列表
+    /// </summary>
+    public async Task GetAchievementsAsync()
+    {
+        if (!IsAuthenticated)
+            return;
+
+        var request = new GetAchievementsRequest
+        {
+            UserId = UserId ?? string.Empty
+        };
+
+        var message = NetworkMessage.Create(MessageType.GetAchievements, request);
+        await _networkClient.SendMessageAsync(message);
+    }
+
+    /// <summary>
+    /// 更新成就进度
+    /// </summary>
+    public async Task UpdateAchievementAsync(string achievementId, int progressDelta)
+    {
+        if (!IsAuthenticated)
+            return;
+
+        var request = new UpdateAchievementRequest
+        {
+            UserId = UserId ?? string.Empty,
+            AchievementId = achievementId,
+            ProgressDelta = progressDelta
+        };
+
+        var message = NetworkMessage.Create(MessageType.UpdateAchievement, request);
+        await _networkClient.SendMessageAsync(message);
+    }
+
+    private void HandleGetAchievementsResponse(NetworkMessage message)
+    {
+        var response = message.GetData<GetAchievementsResponse>();
+        if (response != null && response.Success)
+        {
+            AchievementsReceived?.Invoke(response.Achievements);
+        }
+        else
+        {
+            ErrorOccurred?.Invoke(response?.ErrorMessage ?? "Failed to get achievements");
+        }
+    }
+
+    private void HandleUpdateAchievementResponse(NetworkMessage message)
+    {
+        var response = message.GetData<UpdateAchievementResponse>();
+        if (response != null && !response.Success)
+        {
+            ErrorOccurred?.Invoke(response.ErrorMessage ?? "Failed to update achievement");
+        }
+    }
+
+    private void HandleAchievementCompleted(NetworkMessage message)
+    {
+        var notification = message.GetData<AchievementCompletedNotification>();
+        if (notification != null)
+        {
+            AchievementCompleted?.Invoke(notification);
         }
     }
 }

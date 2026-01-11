@@ -4,6 +4,7 @@ using Microsoft.Xna.Framework.Input;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using EonVientiane.Shared;
 
 namespace EonVientiane;
 
@@ -14,9 +15,15 @@ public class BattleManager
 {
     private Battle _currentBattle;
     private int _battleLogScrollOffset = 0;
-    private bool _isBattleLogOpen = true;
+    private bool _isBattleLogOpen = false;  // 默认关闭战斗日志
     private Rectangle _battleLogWindowRect;
     private Rectangle _battleLogToggleRect;
+    
+    // 临时提示相关字段
+    private string _currentTip = string.Empty;
+    private double _tipDurationMs = 0;  // 剩余显示时间（毫秒）
+    private const double DEFAULT_TIP_DURATION = 3000;  // 3秒显示时间
+    
     private List<Rectangle> _diceButtonRects = new List<Rectangle>();
     private List<Dice> _diceButtons = new List<Dice>();
     private Rectangle _skipActionButtonRect;
@@ -25,9 +32,19 @@ public class BattleManager
 
     private InventoryManager _inventoryManager;
     private int _menuWidth;
+    
+    // 多人战斗相关
+    private bool _isMultiplayerBattle = false;
+    private string _localPlayerId;
+    private BattleStateUpdateNotification _currentBattleState;
+    
+    // 多人战斗事件
+    public event Action<string, string> BattleActionRequested; // (diceName, targetPlayerId)
+    public event Action<string> BattleDefenseRequested; // (diceName)
 
     public Battle CurrentBattle => _currentBattle;
     public bool IsBattleActive => _currentBattle != null && !_currentBattle.IsBattleOver;
+    public bool IsMultiplayerBattle => _isMultiplayerBattle;
 
     public BattleManager(InventoryManager inventoryManager, int menuWidth)
     {
@@ -38,32 +55,55 @@ public class BattleManager
     /// <summary>
     /// 初始化战斗
     /// </summary>
+    // 单人模式已移除，不再提供本地初始化
     public void InitializeBattle()
     {
-        _currentBattle = new Battle();
+        _currentBattle = null;
         _battleLogScrollOffset = 0;
-        _isBattleLogOpen = true;
+        _isBattleLogOpen = false;  // 默认关闭战斗日志
         _pendingSelectedDice = null;
         _diceButtonRects.Clear();
         _diceButtons.Clear();
         _opponentRects.Clear();
-
-        // 创建玩家和电脑对手（1v1）
-        var player = new Player("player", "玩家", PlayerCamp.Team1);
-        var computer = new Player("computer", "电脑", PlayerCamp.Team2);
-
-        // 玩家装备来源：当前背包已装备的道具
-        SetupPlayerEquipmentFromInventory(player);
-
-        // 电脑固定装备：D6、飞羽骰子、自我
-        SetupComputerEquipment(computer);
-
-        _currentBattle.AddPlayer(player);
-        _currentBattle.AddPlayer(computer);
-
-        _currentBattle.InitializeBattle();
+        _currentTip = string.Empty;
+        _tipDurationMs = 0;
     }
 
+    /// <summary>
+    /// 初始化多人战斗（服务器驱动模式）
+    /// </summary>
+    public void InitializeMultiplayerBattle(List<PlayerInfo> playerInfoList, string localPlayerId)
+    {
+        _currentBattle = new Battle();
+        _battleLogScrollOffset = 0;
+        _isBattleLogOpen = false;  // 默认关闭战斗日志
+        _pendingSelectedDice = null;
+        _diceButtonRects.Clear();
+        _diceButtons.Clear();
+        _opponentRects.Clear();
+        _currentTip = string.Empty;
+        _tipDurationMs = 0;
+        
+        _isMultiplayerBattle = true;
+        _localPlayerId = localPlayerId;
+
+        // 创建本地显示用的玩家对象（仅用于显示，不运行逻辑）
+        foreach (var playerInfo in playerInfoList)
+        {
+            PlayerCamp camp = playerInfo.TeamId == 1 ? PlayerCamp.Team1 : PlayerCamp.Team2;
+            var player = new Player(playerInfo.PlayerId, playerInfo.PlayerName, camp);
+            
+            // 为本地玩家装备当前背包中的物品
+            if (playerInfo.PlayerId == localPlayerId)
+            {
+                SetupPlayerEquipmentFromInventory(player);
+            }
+            
+            _currentBattle.AddPlayer(player);
+        }
+        
+        // 不调用 InitializeBattle()，等待服务器状态更新
+    }
     /// <summary>
     /// 将当前背包中已装备的道具同步给玩家
     /// </summary>
@@ -78,14 +118,66 @@ public class BattleManager
     }
 
     /// <summary>
+    /// 显示临时提示
+    /// </summary>
+    private void ShowTip(string message, double durationMs = DEFAULT_TIP_DURATION)
+    {
+        _currentTip = message;
+        _tipDurationMs = durationMs;
+    }
+
+    /// <summary>
+    /// 根据骰子名称列表同步玩家装备（用于多人战斗中的其他玩家）
+    /// </summary>
+    private void SyncPlayerDiceEquipment(Player player, List<string> equippedDiceNames)
+    {
+        // 只同步骰子，不同步饰品（饰品可能会改变游戏逻辑）
+        player.EquippedItems.Clear();
+        
+        foreach (var diceName in equippedDiceNames ?? new List<string>())
+        {
+            var dice = CreateDiceByName(diceName);
+            if (dice != null)
+            {
+                player.AddEquipment(dice);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 根据名称创建对应的骰子对象
+    /// </summary>
+    private Dice CreateDiceByName(string diceName)
+    {
+        return diceName switch
+        {
+            "D6骰子" => new D6Dice(DiceUsageType.Both),
+            "飞羽骰子" => new FeatheredDice(),
+            // 可以根据需要添加更多骰子类型
+            _ => null
+        };
+    }
+
+    /// <summary>
     /// 为电脑配置默认装备：D6、飞羽骰子、自我
     /// </summary>
-    private void SetupComputerEquipment(Player computer)
+    // 电脑自动操控已移除
+    private void SetupComputerEquipment(Player computer) { }
+
+    /// <summary>
+    /// 更新临时提示的显示时间
+    /// </summary>
+    public void UpdateTip(GameTime gameTime)
     {
-        computer.EquippedItems.Clear();
-        computer.AddEquipment(new D6Dice(DiceUsageType.Both));
-        computer.AddEquipment(new FeatheredDice());
-        computer.AddEquipment(new SelfAccessory());
+        if (_tipDurationMs > 0)
+        {
+            _tipDurationMs -= gameTime.ElapsedGameTime.TotalMilliseconds;
+            if (_tipDurationMs <= 0)
+            {
+                _currentTip = string.Empty;
+                _tipDurationMs = 0;
+            }
+        }
     }
 
     /// <summary>
@@ -93,10 +185,8 @@ public class BattleManager
     /// </summary>
     public void Update()
     {
-        if (_currentBattle != null && !_currentBattle.IsBattleOver)
-        {
-            _currentBattle.Update();
-        }
+        // 客户端不运行本地战斗逻辑（多人模式由服务器驱动）
+        return;
     }
 
     /// <summary>
@@ -137,7 +227,7 @@ public class BattleManager
             }
         }
 
-        if (_currentBattle.IsWaitingForPlayerInput && _currentBattle.CurrentActionPlayer != null)
+        if (_currentBattle != null && _currentBattle.IsWaitingForPlayerInput)
         {
             HandleBattleActionInput(mouseState, previousMouseState, panelX, panelWidth, panelHeight);
         }
@@ -171,7 +261,8 @@ public class BattleManager
                 if (_skipActionButtonRect.Contains(mp))
                 {
                     _pendingSelectedDice = null;
-                    _currentBattle.SubmitPlayerAttackChoice(null, null);
+                    // 仅多人战斗：发送到服务器
+                    BattleActionRequested?.Invoke(null, null);
                     return;
                 }
 
@@ -183,7 +274,8 @@ public class BattleManager
                         var opponents = _currentBattle.AvailableOpponents;
                         if (opponents.Count <= 1)
                         {
-                            _currentBattle.SubmitPlayerAttackChoice(dice, opponents.FirstOrDefault());
+                            // 仅多人战斗：发送到服务器
+                            BattleActionRequested?.Invoke(dice.Name, opponents.FirstOrDefault()?.PlayerId);
                         }
                         else
                         {
@@ -215,7 +307,8 @@ public class BattleManager
                 Point mp = new Point(mouseState.X, mouseState.Y);
                 if (_skipActionButtonRect.Contains(mp))
                 {
-                    _currentBattle.SubmitPlayerDefenseChoice(null);
+                    // 仅多人战斗：发送到服务器
+                    BattleDefenseRequested?.Invoke(null);
                     return;
                 }
                 for (int i = 0; i < _diceButtonRects.Count; i++)
@@ -223,7 +316,8 @@ public class BattleManager
                     if (_diceButtonRects[i].Contains(mp))
                     {
                         var dice = _diceButtons[i];
-                        _currentBattle.SubmitPlayerDefenseChoice(dice);
+                        // 仅多人战斗：发送到服务器
+                        BattleDefenseRequested?.Invoke(dice.Name);
                         return;
                     }
                 }
@@ -259,7 +353,8 @@ public class BattleManager
             {
                 if (rect.Contains(mp))
                 {
-                    _currentBattle.SubmitPlayerAttackChoice(_pendingSelectedDice, player);
+                    // 仅多人战斗：发送到服务器
+                    BattleActionRequested?.Invoke(_pendingSelectedDice?.Name, player.PlayerId);
                     _pendingSelectedDice = null;
                     return;
                 }
@@ -305,6 +400,38 @@ public class BattleManager
         DrawBattleLog(spriteBatch, texture, font, graphicsDevice, panelX, panelWidth);
 
         DrawBattleActions(spriteBatch, texture, font, panelX, panelWidth, panelHeight, barW, barH, barTop);
+        
+        DrawTemporaryTip(spriteBatch, texture, font, panelX, panelWidth, panelHeight);
+    }
+
+    /// <summary>
+    /// 绘制临时提示信息
+    /// </summary>
+    private void DrawTemporaryTip(SpriteBatch spriteBatch, Texture2D texture, SpriteFont font, int panelX, int panelWidth, int panelHeight)
+    {
+        if (string.IsNullOrEmpty(_currentTip) || _tipDurationMs <= 0)
+            return;
+
+        spriteBatch.Begin();
+
+        // 计算提示文本的大小
+        Vector2 tipSize = font.MeasureString(_currentTip);
+        int padding = 20;
+        
+        // 在屏幕中央上方显示
+        int tipX = panelX + (panelWidth - (int)tipSize.X) / 2;
+        int tipY = panelHeight / 3;
+        
+        // 绘制背景
+        Rectangle tipBG = new Rectangle(tipX - padding, tipY - padding / 2, (int)tipSize.X + padding * 2, (int)tipSize.Y + padding);
+        spriteBatch.Draw(texture, tipBG, Color.Black * 0.7f);
+        DrawingHelper.DrawRectangle(spriteBatch, texture, tipBG, Color.Gold, 2);
+        
+        // 绘制文本，根据剩余时间调整透明度
+        float alpha = Math.Min(1f, (float)(_tipDurationMs / 500.0));  // 最后500ms淡出
+        spriteBatch.DrawString(font, _currentTip, new Vector2(tipX, tipY), Color.Gold * alpha);
+
+        spriteBatch.End();
     }
 
     private void DrawPlayerHealthBar(SpriteBatch spriteBatch, Texture2D texture, SpriteFont font, int xPosition, Player player, int barW, int barH, int barTop, bool isLeft)
@@ -463,6 +590,206 @@ public class BattleManager
 
         spriteBatch.End();
     }
+    
+    /// <summary>
+    /// 处理服务器战斗状态更新（多人战斗）
+    /// </summary>
+    public void ApplyServerBattleState(BattleStateUpdateNotification state)
+    {
+        if (!_isMultiplayerBattle || _currentBattle == null)
+            return;
+        
+        _currentBattleState = state;
+        
+        // 更新玩家状态
+        foreach (var playerState in state.Players)
+        {
+            var player = _currentBattle.AllPlayers.FirstOrDefault(p => p.PlayerId == playerState.PlayerId);
+            if (player != null)
+            {
+                player.CurrentHP = playerState.CurrentHP;
+                player.MaxHP = playerState.MaxHP;
+                player.ShieldLayers = playerState.ShieldLayers;
+                // IsDead 会根据 CurrentHP 自动更新
+                
+                // 同步装备的骰子（如果玩家还没有装备）
+                if (player.GetEquippedDice().Count == 0 && playerState.EquippedDiceNames != null && playerState.EquippedDiceNames.Count > 0)
+                {
+                    SyncPlayerDiceEquipment(player, playerState.EquippedDiceNames);
+                }
+            }
+        }
+        
+        // 添加新的战斗日志
+        if (state.NewBattleLogs != null && state.NewBattleLogs.Count > 0)
+        {
+            foreach (var log in state.NewBattleLogs)
+            {
+                _currentBattle.BattleLog.Add(log);
+            }
+            
+            // 显示最后一条战斗日志作为临时提示
+            if (state.NewBattleLogs.Count > 0)
+            {
+                string lastLog = state.NewBattleLogs[state.NewBattleLogs.Count - 1];
+                ShowTip(lastLog, 2500);  // 显示2.5秒
+            }
+        }
+        
+        // 同步基础战斗状态
+        _currentBattle.CurrentRound = state.CurrentRound;
+        if (Enum.TryParse<BattleState>(state.CurrentState, out var parsedState))
+        {
+            _currentBattle.CurrentState = parsedState;
+        }
+        if (Enum.TryParse<PlayerCamp>(state.CurrentCamp, out var parsedCamp))
+        {
+            _currentBattle.CurrentCamp = parsedCamp;
+        }
+
+        // 更新行动/输入上下文
+        if (Enum.TryParse<BattleInputContext>(state.InputContext, out var parsedContext))
+        {
+            _currentBattle.SetInputContext(parsedContext);
+        }
+        else
+        {
+            _currentBattle.SetInputContext(BattleInputContext.None);
+        }
+
+        _currentBattle.CurrentActionPlayer = !string.IsNullOrEmpty(state.CurrentActionPlayerId)
+            ? _currentBattle.AllPlayers.FirstOrDefault(p => p.PlayerId == state.CurrentActionPlayerId)
+            : null;
+
+        _currentBattle.IsBattleOver = state.IsBattleOver;
+        if (!string.IsNullOrEmpty(state.WinnerCamp) && Enum.TryParse<PlayerCamp>(state.WinnerCamp, out var parsedWinner))
+        {
+            _currentBattle.WinnerCamp = parsedWinner;
+        }
+        else
+        {
+            _currentBattle.WinnerCamp = null;
+        }
+
+        // 战斗结束则不再等待输入
+        if (state.IsBattleOver)
+        {
+            _currentBattle.IsWaitingForPlayerInput = false;
+            return;
+        }
+        
+        // 更新等待输入状态
+        if (!string.IsNullOrEmpty(state.WaitingInputPlayerId) && state.WaitingInputPlayerId == _localPlayerId)
+        {
+            // 本地玩家需要输入
+            _currentBattle.IsWaitingForPlayerInput = true;
+            
+            if (state.InputContext == "AttackSelection")
+            {
+                // 设置可用的AD骰子（从服务器状态）
+                // 注意：这里我们使用 CurrentActionPlayerId 而不是 CurrentActionPlayer
+                if (!string.IsNullOrEmpty(state.CurrentActionPlayerId))
+                {
+                    UpdateAvailableActiveDice(state.AvailableActiveDiceNames, state.CurrentActionPlayerId);
+                }
+                // 设置可攻击的对手
+                UpdateAvailableOpponents(state.AvailableOpponentIds);
+            }
+            else if (state.InputContext == "DefenseSelection")
+            {
+                // 设置可用的PD骰子
+                UpdateAvailablePassiveDice(state.AvailablePassiveDiceNames);
+            }
+        }
+        else
+        {
+            _currentBattle.IsWaitingForPlayerInput = false;
+        }
+    }
+    
+    private void UpdateAvailableActiveDice(List<string> diceNames, string playerId = null)
+    {
+        if (diceNames == null)
+            return;
+        
+        // 如果提供了玩家ID，使用它；否则使用 CurrentActionPlayer
+        Player actionPlayer = null;
+        if (!string.IsNullOrEmpty(playerId))
+        {
+            actionPlayer = _currentBattle.AllPlayers.FirstOrDefault(p => p.PlayerId == playerId);
+        }
+        else
+        {
+            actionPlayer = _currentBattle.CurrentActionPlayer;
+        }
+        
+        if (actionPlayer == null)
+        {
+            Console.WriteLine($"[Warning] Could not find action player for dice update: {playerId}");
+            return;
+        }
+        
+        var availableDice = new List<Dice>();
+        foreach (var diceName in diceNames)
+        {
+            var dice = actionPlayer.GetEquippedDice().FirstOrDefault(d => d.Name == diceName);
+            if (dice != null)
+            {
+                availableDice.Add(dice);
+            }
+        }
+        
+        Console.WriteLine($"[BattleManager] Updating available dice for {actionPlayer.PlayerName}: {string.Join(", ", availableDice.Select(d => d.Name))}");
+        
+        // 通过反射设置私有字段（暂时方案）
+        var fieldInfo = typeof(Battle).GetField("_currentActiveDiceChoices", 
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        fieldInfo?.SetValue(_currentBattle, availableDice);
+    }
+    
+    private void UpdateAvailablePassiveDice(List<string> diceNames)
+    {
+        if (diceNames == null)
+            return;
+        
+        var localPlayer = _currentBattle.AllPlayers.FirstOrDefault(p => p.PlayerId == _localPlayerId);
+        if (localPlayer == null)
+            return;
+        
+        var availableDice = new List<Dice>();
+        foreach (var diceName in diceNames)
+        {
+            var dice = localPlayer.GetEquippedDice().FirstOrDefault(d => d.Name == diceName);
+            if (dice != null)
+            {
+                availableDice.Add(dice);
+            }
+        }
+        
+        var fieldInfo = typeof(Battle).GetField("_currentPassiveDiceChoices", 
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        fieldInfo?.SetValue(_currentBattle, availableDice);
+    }
+    
+    private void UpdateAvailableOpponents(List<string> opponentIds)
+    {
+        if (opponentIds == null)
+            return;
+        
+        var opponents = new List<Player>();
+        foreach (var opponentId in opponentIds)
+        {
+            var opponent = _currentBattle.AllPlayers.FirstOrDefault(p => p.PlayerId == opponentId);
+            if (opponent != null)
+            {
+                opponents.Add(opponent);
+            }
+        }
+        
+        var fieldInfo = typeof(Battle).GetField("_currentOpponents", 
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        fieldInfo?.SetValue(_currentBattle, opponents);
+    }
 
     /// <summary>
     /// 结束战斗
@@ -474,5 +801,8 @@ public class BattleManager
         _diceButtonRects.Clear();
         _diceButtons.Clear();
         _opponentRects.Clear();
+        _isMultiplayerBattle = false;
+        _localPlayerId = null;
+        _currentBattleState = null;
     }
 }
