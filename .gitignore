@@ -2,3 +2,36 @@ bin/
 obj/
 .vs/
 .vscode/
+# 构建输出
+build/
+build_output/
+
+# 发布输出
+publish/
+PublishProfiles/
+
+# IDE配置
+.idea/
+*.swp
+*.swo
+*~
+
+# OS特定文件
+.DS_Store
+Thumbs.db
+*.log
+
+# 编译生成的文件
+*.dll
+*.exe
+*.pdb
+*.nupkg
+
+# 用户特定文件
+*.user
+*.userprefs
+*.suo
+
+# 其他
+.net/
+packages/
