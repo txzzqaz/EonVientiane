@@ -794,10 +794,14 @@ public class BattleManager
         // 如果装备"预见"，显示双行规划框
         if (HasForesightAccessory())
         {
+            // 装备预见时只显示规划框，不显示普通骰子框
             DrawForesightPlannedActions(spriteBatch, texture, font, panelX, panelWidth, panelHeight, barW, barH, barTop);
         }
-
-        DrawBattleActions(spriteBatch, texture, font, panelX, panelWidth, panelHeight, barW, barH, barTop);
+        else
+        {
+            // 未装备预见时显示普通骰子框
+            DrawBattleActions(spriteBatch, texture, font, panelX, panelWidth, panelHeight, barW, barH, barTop);
+        }
         
         DrawTemporaryTip(spriteBatch, texture, font, panelX, panelWidth, panelHeight);
     }
@@ -1427,6 +1431,28 @@ public class BattleManager
                 return;
             }
         }
+
+        // AD框的跳过按钮处理
+        int adDiceAreaY_skip = panelHeight - 200;
+        int skipBtnW = 80;
+        int skipBtnH = 30;
+        Rectangle skipAdButtonRect = new Rectangle(panelX + panelWidth - skipBtnW - 20, adDiceAreaY_skip + 20, skipBtnW, skipBtnH);
+        if (skipAdButtonRect.Contains(mp))
+        {
+            ConfirmManualInput();
+            ShowTip("跳过AD规划");
+            return;
+        }
+
+        // PD框的跳过按钮处理
+        int pdDiceAreaY_skip = panelHeight - 120;
+        Rectangle skipPdButtonRect = new Rectangle(panelX + panelWidth - skipBtnW - 20, pdDiceAreaY_skip + 20, skipBtnW, skipBtnH);
+        if (skipPdButtonRect.Contains(mp))
+        {
+            ConfirmManualInput();
+            ShowTip("跳过PD规划");
+            return;
+        }
     }
 
     /// <summary>
@@ -1625,6 +1651,20 @@ public class BattleManager
                 spriteBatch.DrawString(font, sequenceText, new Vector2(rect.Right - seqSize.X - 5, rect.Y + 5), Color.Yellow, 0f, Vector2.Zero, 0.8f, SpriteEffects.None, 0f);
             }
         }
+
+        // AD框的跳过按钮
+        int skipBtnW = 80;
+        int skipBtnH = 30;
+        _skipActionButtonRect = new Rectangle(panelX + panelWidth - skipBtnW - 20, adDiceAreaY + 20, skipBtnW, skipBtnH);
+        spriteBatch.Draw(texture, _skipActionButtonRect, Color.DimGray * 0.9f);
+        DrawingHelper.DrawRectangle(spriteBatch, texture, _skipActionButtonRect, Color.White, 2);
+        spriteBatch.DrawString(font, "跳过", new Vector2(_skipActionButtonRect.X + 15, _skipActionButtonRect.Y + 3), Color.White);
+
+        // PD框的跳过按钮
+        Rectangle skipPdButtonRect = new Rectangle(panelX + panelWidth - skipBtnW - 20, pdDiceAreaY + 20, skipBtnW, skipBtnH);
+        spriteBatch.Draw(texture, skipPdButtonRect, Color.DimGray * 0.9f);
+        DrawingHelper.DrawRectangle(spriteBatch, texture, skipPdButtonRect, Color.White, 2);
+        spriteBatch.DrawString(font, "跳过", new Vector2(skipPdButtonRect.X + 15, skipPdButtonRect.Y + 3), Color.White);
 
         spriteBatch.End();
     }
