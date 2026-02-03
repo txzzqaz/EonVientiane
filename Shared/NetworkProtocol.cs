@@ -67,6 +67,7 @@ public enum MessageType
     BattleActionResponse,
     BattleDefenseRequest,
     BattleDefenseResponse,
+    BattleSurrenderRequest,
     BattleLog,
     BattleEnd,
     
@@ -372,10 +373,13 @@ public class AchievementDto
     public string Id { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public string Icon { get; set; } = string.Empty;
     public int Progress { get; set; }
     public int RequiredProgress { get; set; }
     public bool IsCompleted { get; set; }
     public DateTime? CompletedTime { get; set; }
+    public List<RewardDto> Rewards { get; set; } = new();
+    public float ProgressPercentage => RequiredProgress > 0 ? (Progress * 100f) / RequiredProgress : 0f;
 }
 
 /// <summary>
@@ -495,6 +499,7 @@ public class BattleActionRequest
     public string PlayerId { get; set; } = string.Empty;
     public string SelectedDiceName { get; set; } = string.Empty;
     public string TargetPlayerId { get; set; } = string.Empty;
+    public int? ManualDiceValue { get; set; }
 }
 
 /// <summary>
@@ -505,6 +510,46 @@ public class BattleDefenseRequest
     public string RoomId { get; set; } = string.Empty;
     public string PlayerId { get; set; } = string.Empty;
     public string SelectedDiceName { get; set; } = string.Empty;
+    public int? ManualDiceValue { get; set; }
+}
+
+/// <summary>
+/// 战斗认输请求
+/// </summary>
+public class BattleSurrenderRequest
+{
+    public string RoomId { get; set; } = string.Empty;
+    public string PlayerId { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 玩家战斗统计数据
+/// </summary>
+public class PlayerBattleStats
+{
+    public string PlayerId { get; set; } = string.Empty;
+    public string PlayerName { get; set; } = string.Empty;
+    public int TeamId { get; set; }
+    public int TotalDamageDealt { get; set; }  // 总造成伤害
+    public int TotalDamageTaken { get; set; }  // 总承受伤害
+    public int TotalDamageBlocked { get; set; } // 总格挡伤害
+    public int AttackCount { get; set; }        // 攻击次数
+    public int DefenseCount { get; set; }       // 防御次数
+    public int KillCount { get; set; }          // 击杀数
+    public TimeSpan TotalActionTime { get; set; } // 总行动时间
+    public Dictionary<string, int> DiceUsageCount { get; set; } = new(); // 骰子使用次数统计
+    public bool IsMVP { get; set; }             // 是否MVP
+}
+
+/// <summary>
+/// 战斗奖励信息
+/// </summary>
+public class BattleReward
+{
+    public string PlayerId { get; set; } = string.Empty;
+    public int ExpGained { get; set; }          // 获得经验值
+    public List<string> ItemsGained { get; set; } = new(); // 获得物品列表
+    public List<string> AchievementsUnlocked { get; set; } = new(); // 解锁的成就
 }
 
 /// <summary>
@@ -517,4 +562,8 @@ public class BattleEndNotification
     public List<BattlePlayerStateDto> FinalPlayerStates { get; set; } = new();
     public List<string> BattleLogs { get; set; } = new();
     public DateTime EndTimeUtc { get; set; } = DateTime.UtcNow;
+    public TimeSpan BattleDuration { get; set; } // 战斗持续时间
+    public int TotalRounds { get; set; }         // 总回合数
+    public List<PlayerBattleStats> PlayerStats { get; set; } = new(); // 玩家战斗统计
+    public List<BattleReward> PlayerRewards { get; set; } = new(); // 玩家奖励
 }

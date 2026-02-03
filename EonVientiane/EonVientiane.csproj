@@ -48,4 +48,9 @@
   <ItemGroup>
     <ProjectReference Include="../Shared/Shared.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="Content/Icons/**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 </Project>

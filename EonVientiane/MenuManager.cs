@@ -64,7 +64,7 @@ public class MenuManager
         );
 
         // 初始化中间按钮列表
-        string[] buttonLabels = { "联机大厅", "按钮2", "按钮3", "按钮4", "战斗" };
+        string[] buttonLabels = { "联机大厅", "背包", "按钮3", "按钮4", "战斗" };
         foreach (var label in buttonLabels)
         {
             AddMiddleButton(label);

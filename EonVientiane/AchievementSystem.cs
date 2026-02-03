@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using EonVientiane.Shared;
 
+#nullable enable
+
 namespace EonVientiane;
 
 /// <summary>
-/// 成就系统 - 管理游戏内的成就和奖励
+/// 成就系统 - 管理游戏内的成就和奖励，支持客户端与服务器同步
 /// </summary>
 public class AchievementSystem
 {
@@ -68,14 +70,21 @@ public class AchievementSystem
     }
 
     private Dictionary<string, Achievement> _achievements = new();
+    private Dictionary<string, Achievement> _serverAchievements = new(); // 缓存服务器数据
     private string _userId = string.Empty;
     private InventoryManager _inventoryManager;
+    private DateTime _lastServerSync = DateTime.MinValue;
 
     // 事件：成就完成时触发
     public event Action<Achievement>? AchievementCompleted;
     public event Action<Reward>? RewardGiven;
+    public event Action<string>? SyncStarted;
+    public event Action<string>? SyncCompleted;
+    public event Action<string>? SyncFailed;
 
     public IReadOnlyDictionary<string, Achievement> Achievements => _achievements.AsReadOnly();
+    public IReadOnlyDictionary<string, Achievement> ServerAchievements => _serverAchievements.AsReadOnly();
+    public DateTime LastServerSync => _lastServerSync;
 
     public AchievementSystem(InventoryManager inventoryManager)
     {
@@ -89,6 +98,7 @@ public class AchievementSystem
     public void SetUserId(string userId)
     {
         _userId = userId;
+        Console.WriteLine($"[Client] AchievementSystem userId set to '{userId}'");
     }
 
     /// <summary>
@@ -96,80 +106,8 @@ public class AchievementSystem
     /// </summary>
     private void InitializeDefaultAchievements()
     {
-        // 成就1: 首次胜利
-        // _achievements["first_victory"] = new Achievement
-        // {
-        //     Id = "first_victory",
-        //     Name = "初露锋芒",
-        //     Description = "赢得第一场战斗",
-        //     Icon = "achievement_first_win",
-        //     RequiredProgress = 1,
-        //     Rewards = new List<Reward>
-        //     {
-        //         new Reward { Type = "Item", ItemId = "item_reward_1", Quantity = 1 },
-        //         new Reward { Type = "Gold", ItemId = "", Quantity = 100 }
-        //     }
-        // };
-
-        // 成就2: 战斗好手
-        // _achievements["battle_master"] = new Achievement
-        // {
-        //     Id = "battle_master",
-        //     Name = "战斗好手",
-        //     Description = "赢得10场战斗",
-        //     Icon = "achievement_battle_master",
-        //     RequiredProgress = 10,
-        //     Rewards = new List<Reward>
-        //     {
-        //         new Reward { Type = "Item", ItemId = "item_reward_2", Quantity = 1 },
-        //         new Reward { Type = "Gold", ItemId = "", Quantity = 500 }
-        //     }
-        // };
-
-        // 成就3: 装备收集家
-        // _achievements["item_collector"] = new Achievement
-        // {
-        //     Id = "item_collector",
-        //     Name = "装备收集家",
-        //     Description = "收集20件装备",
-        //     Icon = "achievement_collector",
-        //     RequiredProgress = 20,
-        //     Rewards = new List<Reward>
-        //     {
-        //         new Reward { Type = "Item", ItemId = "item_reward_3", Quantity = 1 },
-        //         new Reward { Type = "Gold", ItemId = "", Quantity = 300 }
-        //     }
-        // };
-
-        // 成就4: 无敌战士
-        // _achievements["no_death_warrior"] = new Achievement
-        // {
-        //     Id = "no_death_warrior",
-        //     Name = "无敌战士",
-        //     Description = "完成5场无死亡战斗",
-        //     Icon = "achievement_warrior",
-        //     RequiredProgress = 5,
-        //     Rewards = new List<Reward>
-        //     {
-        //         new Reward { Type = "Item", ItemId = "item_reward_4", Quantity = 1 },
-        //         new Reward { Type = "Gold", ItemId = "", Quantity = 200 }
-        //     }
-        // };
-
-        // 成就5: 时间旅者
-        // _achievements["time_traveler"] = new Achievement
-        // {
-        //     Id = "time_traveler",
-        //     Name = "时间旅者",
-        //     Description = "游戏时间累计10小时",
-        //     Icon = "achievement_traveler",
-        //     RequiredProgress = 10,
-        //     Rewards = new List<Reward>
-        //     {
-        //         new Reward { Type = "Item", ItemId = "item_reward_5", Quantity = 1 },
-        //         new Reward { Type = "Gold", ItemId = "", Quantity = 400 }
-        //     }
-        // };
+        // 初始化为空，由服务器下发数据填充
+        Console.WriteLine("[Client] AchievementSystem initialized, waiting for server data");
     }
 
     /// <summary>
@@ -178,13 +116,22 @@ public class AchievementSystem
     public void UpdateProgress(string achievementId, int progressDelta)
     {
         if (!_achievements.TryGetValue(achievementId, out var achievement))
+        {
+            Console.WriteLine($"[Client] Achievement '{achievementId}' not found locally");
             return;
+        }
 
         if (achievement.IsCompleted)
+        {
+            Console.WriteLine($"[Client] Achievement '{achievementId}' already completed");
             return;
+        }
 
+        int previousProgress = achievement.Progress;
         achievement.Progress += progressDelta;
         achievement.Progress = Math.Min(achievement.Progress, achievement.RequiredProgress);
+
+        Console.WriteLine($"[Client] Updated achievement '{achievementId}': {previousProgress} -> {achievement.Progress}/{achievement.RequiredProgress}");
 
         if (achievement.Progress >= achievement.RequiredProgress)
         {
@@ -202,6 +149,8 @@ public class AchievementSystem
 
         achievement.IsCompleted = true;
         achievement.CompletedTime = DateTime.UtcNow;
+
+        Console.WriteLine($"[Client] Achievement completed: {achievement.Name} ({achievementId})");
 
         // 发放奖励
         foreach (var reward in achievement.Rewards)
@@ -224,6 +173,7 @@ public class AchievementSystem
             if (rewardItem != null)
             {
                 _inventoryManager.AddItem(rewardItem, reward.Quantity);
+                Console.WriteLine($"[Client] Added reward item: {reward.ItemId} x{reward.Quantity}");
             }
         }
 
@@ -263,6 +213,38 @@ public class AchievementSystem
                 MaxStackSize = 1,
                 Attack = 2,
                 Defense = 2
+            },
+            "feathered_dice" => new Equipment("feathered_dice", "羽毛骰", "成就奖励", EquipmentType.Dice)
+            {
+                MaxStackSize = 1,
+                Attack = 8,
+                Defense = 2
+            },
+            "ascension_proof" => new Equipment("ascension_proof", "晋升凭证", "成就奖励", EquipmentType.Accessory)
+            {
+                MaxStackSize = 1,
+                Attack = 5,
+                Defense = 5
+            },
+            "holy_fire" => new HolyFireAccessory()
+            {
+                MaxStackSize = 1
+            },
+            "wanderer_heart" => new WandererHeartAccessory()
+            {
+                MaxStackSize = 1
+            },
+            "foresight" => new ForesightAccessory()
+            {
+                MaxStackSize = 1
+            },
+            "guasha_parquet" => new GuaShaParquetDice()
+            {
+                MaxStackSize = 1
+            },
+            "concerted_effort" => new ConcertedEffortAccessory()
+            {
+                MaxStackSize = 1
             },
             _ => null
         };
@@ -309,17 +291,112 @@ public class AchievementSystem
     /// <summary>
     /// 从服务端数据加载成就状态
     /// </summary>
-    public void LoadFromServer(List<AchievementData> serverData)
+    public void SyncWithServer(List<AchievementDto> serverData)
     {
-        foreach (var data in serverData)
+        try
         {
-            if (_achievements.TryGetValue(data.Id, out var achievement))
+            SyncStarted?.Invoke("正在与服务器同步成就...");
+            Console.WriteLine($"[Client] Syncing {serverData.Count} achievements from server");
+
+            _serverAchievements.Clear();
+            _achievements.Clear();
+
+            foreach (var dto in serverData)
             {
-                achievement.Progress = data.Progress;
-                achievement.IsCompleted = data.IsCompleted;
-                achievement.CompletedTime = data.CompletedTime;
+                var achievement = new Achievement
+                {
+                    Id = dto.Id,
+                    Name = dto.Name,
+                    Description = dto.Description,
+                    Icon = dto.Icon,
+                    Progress = dto.Progress,
+                    RequiredProgress = dto.RequiredProgress,
+                    IsCompleted = dto.IsCompleted,
+                    CompletedTime = dto.CompletedTime,
+                    Rewards = dto.Rewards?.Select(r => new Reward
+                    {
+                        Type = r.Type,
+                        ItemId = r.ItemId,
+                        Quantity = r.Quantity
+                    }).ToList() ?? new()
+                };
+
+                _achievements[dto.Id] = achievement;
+                _serverAchievements[dto.Id] = achievement.Clone();
+
+                Console.WriteLine($"[Client] Loaded achievement: {achievement.Name} (Progress: {achievement.Progress}/{achievement.RequiredProgress})");
+            }
+
+            _lastServerSync = DateTime.UtcNow;
+            SyncCompleted?.Invoke($"成功同步 {_achievements.Count} 个成就");
+            Console.WriteLine($"[Client] Achievement sync completed, {_achievements.Count} achievements loaded");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Client] Achievement sync failed: {ex.Message}");
+            SyncFailed?.Invoke($"同步失败: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 检查本地成就与服务器数据的差异
+    /// </summary>
+    public List<string> GetModifiedAchievements()
+    {
+        var modified = new List<string>();
+
+        foreach (var (id, local) in _achievements)
+        {
+            if (_serverAchievements.TryGetValue(id, out var server))
+            {
+                if (local.Progress != server.Progress || 
+                    local.IsCompleted != server.IsCompleted)
+                {
+                    modified.Add(id);
+                }
             }
         }
+
+        return modified;
+    }
+
+    /// <summary>
+    /// 验证成就状态一致性
+    /// </summary>
+    public bool ValidateSyncState()
+    {
+        int inconsistencies = 0;
+
+        foreach (var (id, local) in _achievements)
+        {
+            if (!_serverAchievements.TryGetValue(id, out var server))
+            {
+                Console.WriteLine($"[Client] Achievement '{id}' missing in server cache");
+                inconsistencies++;
+                continue;
+            }
+
+            if (local.Progress != server.Progress)
+            {
+                Console.WriteLine($"[Client] Achievement '{id}' progress mismatch: local={local.Progress}, server={server.Progress}");
+                inconsistencies++;
+            }
+
+            if (local.IsCompleted != server.IsCompleted)
+            {
+                Console.WriteLine($"[Client] Achievement '{id}' completion status mismatch");
+                inconsistencies++;
+            }
+        }
+
+        if (inconsistencies == 0)
+        {
+            Console.WriteLine("[Client] Achievement state validation passed");
+            return true;
+        }
+
+        Console.WriteLine($"[Client] Found {inconsistencies} inconsistencies in achievement state");
+        return false;
     }
 
     /// <summary>

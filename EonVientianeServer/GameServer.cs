@@ -23,16 +23,26 @@ public class GameServer
     private readonly Dictionary<string, GameRoom> _rooms = new();
     private readonly Dictionary<string, CancellationTokenSource> _roomCountdowns = new();
     private readonly UserManager _userManager = new();
-    private readonly InventoryStore _inventoryStore = new();
+    private readonly InventoryStore _inventoryStore;
     private readonly AchievementManager _achievementManager = new();
     private readonly TimeSpan _gameStartDelay = TimeSpan.FromSeconds(3);
     private readonly object _lock = new();
+
+    private class AbsoluteLuckState
+    {
+        public int Streak { get; set; }
+        public int ProgressSynced { get; set; }
+        public int? UniformValue { get; set; }
+    }
+
+    private readonly Dictionary<string, AbsoluteLuckState> _absoluteLuckStates = new();
     
     public bool IsRunning { get; private set; }
     
     public GameServer(int port = 7777)
     {
         _port = port;
+        _inventoryStore = new InventoryStore("data/users", _userManager);
     }
 
     
@@ -254,6 +264,15 @@ public class GameServer
                 }
                 await HandleBattleDefenseAsync(client, message);
                 break;
+
+            case MessageType.BattleSurrenderRequest:
+                if (!client.IsAuthenticated)
+                {
+                    await SendErrorAsync(client, "请先登录");
+                    break;
+                }
+                await HandleBattleSurrenderAsync(client, message);
+                break;
             
             // 成就相关
             case MessageType.GetAchievements:
@@ -419,7 +438,12 @@ public class GameServer
             return;
         }
 
-        var state = _inventoryStore.LoadOrCreate(client.UserId, () => ItemInitializer.GetInitialInventory(client.UserId));
+        // 根据是否为测试账号选择不同的初始化方法
+        var initialFactory = _userManager.IsTestAccount(client.UserId)
+            ? (Func<List<InitialInventoryItem>>)ItemInitializer.GetTestAccountInventory
+            : () => ItemInitializer.GetInitialInventory(client.UserId);
+            
+        var state = _inventoryStore.LoadOrCreate(client.UserId, initialFactory);
         var dto = _inventoryStore.ToDto(state);
         await client.SendMessageAsync(NetworkMessage.Create(MessageType.InventoryState, dto));
     }
@@ -442,7 +466,10 @@ public class GameServer
             return;
         }
 
-        var state = _inventoryStore.LoadOrCreate(client.UserId, () => ItemInitializer.GetInitialInventory(client.UserId));
+        var initialFactory = _userManager.IsTestAccount(client.UserId)
+            ? (Func<List<InitialInventoryItem>>)ItemInitializer.GetTestAccountInventory
+            : () => ItemInitializer.GetInitialInventory(client.UserId);
+        var state = _inventoryStore.LoadOrCreate(client.UserId, initialFactory);
         var stack = state.Items.FirstOrDefault(i => i.StackId == request.StackId);
 
         if (stack == null)
@@ -452,6 +479,9 @@ public class GameServer
         }
 
         stack.IsEquipped = true;
+        // 调整顺序：让装备顺序与选择顺序一致（最近装备的放在最后）
+        state.Items.Remove(stack);
+        state.Items.Add(stack);
         state = _inventoryStore.Save(state);
         await SendInventoryUpdatedAsync(client, state, MessageType.EquipItemResponse);
     }
@@ -474,7 +504,10 @@ public class GameServer
             return;
         }
 
-        var state = _inventoryStore.LoadOrCreate(client.UserId, () => ItemInitializer.GetInitialInventory(client.UserId));
+        var initialFactory = _userManager.IsTestAccount(client.UserId)
+            ? (Func<List<InitialInventoryItem>>)ItemInitializer.GetTestAccountInventory
+            : () => ItemInitializer.GetInitialInventory(client.UserId);
+        var state = _inventoryStore.LoadOrCreate(client.UserId, initialFactory);
         var stack = state.Items.FirstOrDefault(i => i.StackId == request.StackId);
 
         if (stack == null)
@@ -989,8 +1022,10 @@ public class GameServer
             
             foreach (var client in clients)
             {
-                var inventoryState = _inventoryStore.LoadOrCreate(client.UserId, 
-                    () => ItemInitializer.GetInitialInventory(client.UserId));
+                var initialFactory = _userManager.IsTestAccount(client.UserId)
+                    ? (Func<List<InitialInventoryItem>>)ItemInitializer.GetTestAccountInventory
+                    : () => ItemInitializer.GetInitialInventory(client.UserId);
+                var inventoryState = _inventoryStore.LoadOrCreate(client.UserId, initialFactory);
                 
                 var equippedItems = inventoryState.Items
                     .Where(item => item.IsEquipped)
@@ -1035,15 +1070,19 @@ public class GameServer
                 // 更新战斗逻辑
                 battle.Update();
                 
-                // 广播更新
-                await BroadcastBattleStateAsync(room, battle);
-                
+                // 如果战斗结束，先发送一次最终状态，然后发送结束通知
                 if (battle.IsBattleOver)
                 {
+                    // 发送最终的战斗状态（显示战斗已结束）
+                    await BroadcastBattleStateAsync(room, battle);
+                    
                     // 广播战斗结束
                     await BroadcastBattleEndAsync(room, battle);
                     break;
                 }
+                
+                // 广播常规更新
+                await BroadcastBattleStateAsync(room, battle);
                 
                 await Task.Delay(battleUpdateInterval);
             }
@@ -1121,18 +1160,133 @@ public class GameServer
             await client.SendMessageAsync(message);
         }
     }
+
+    /// <summary>
+    /// 处理"绝对幸运"成就：连胜6局且期间掷出的点数保持一致
+    /// </summary>
+    private void HandleAbsoluteLuckAchievement(ServerBattle battle)
+    {
+        var rollUniformity = battle.GetPlayerRollUniformity();
+        var players = battle.GetAllPlayers();
+        var winnerCamp = battle.WinnerCamp;
+
+        var winners = winnerCamp.HasValue
+            ? players.Where(p => p.Camp == winnerCamp.Value).ToList()
+            : new List<Player>();
+
+        var losers = winnerCamp.HasValue
+            ? players.Where(p => p.Camp != winnerCamp.Value).ToList()
+            : players;
+
+        foreach (var loser in losers)
+        {
+            ResetAbsoluteLuckState(loser.PlayerId);
+        }
+
+        foreach (var winner in winners)
+        {
+            if (!rollUniformity.TryGetValue(winner.PlayerId, out var info) || !info.hasRolls || !info.uniformValue.HasValue)
+            {
+                ResetAbsoluteLuckState(winner.PlayerId);
+                continue;
+            }
+
+            var state = GetAbsoluteLuckState(winner.PlayerId);
+
+            if (state.UniformValue.HasValue && state.UniformValue.Value == info.uniformValue.Value)
+            {
+                state.Streak += 1;
+            }
+            else
+            {
+                state.Streak = 1;
+            }
+
+            state.UniformValue = info.uniformValue.Value;
+            SyncAbsoluteLuckProgress(winner.PlayerId, state);
+        }
+    }
+
+    private AbsoluteLuckState GetAbsoluteLuckState(string userId)
+    {
+        if (!_absoluteLuckStates.TryGetValue(userId, out var state))
+        {
+            state = new AbsoluteLuckState
+            {
+                Streak = 0,
+                ProgressSynced = 0,
+                UniformValue = null
+            };
+
+            var achievements = _achievementManager.GetUserAchievements(userId);
+            var absoluteLuck = achievements.FirstOrDefault(a => a.Id == "absolute_luck");
+            if (absoluteLuck != null)
+            {
+                state.Streak = absoluteLuck.Progress;
+                state.ProgressSynced = absoluteLuck.Progress;
+            }
+
+            _absoluteLuckStates[userId] = state;
+        }
+
+        return state;
+    }
+
+    private void ResetAbsoluteLuckState(string userId)
+    {
+        var state = GetAbsoluteLuckState(userId);
+        state.Streak = 0;
+        state.UniformValue = null;
+        SyncAbsoluteLuckProgress(userId, state);
+    }
+
+    private void SyncAbsoluteLuckProgress(string userId, AbsoluteLuckState state)
+    {
+        int targetProgress = Math.Min(state.Streak, 6);
+        int delta = targetProgress - state.ProgressSynced;
+
+        if (delta == 0)
+            return;
+
+        var (success, isCompleted, currentProgress, error) = _achievementManager.UpdateAchievementProgress(
+            userId,
+            "absolute_luck",
+            delta
+        );
+
+        if (!success)
+        {
+            Console.WriteLine($"[Server] Failed to update absolute_luck for user '{userId}': {error}");
+            return;
+        }
+
+        state.ProgressSynced = currentProgress;
+
+        if (isCompleted)
+        {
+            Console.WriteLine($"[Server] Player {userId} completed 'absolute_luck' achievement!");
+        }
+    }
     
     /// <summary>
     /// 广播战斗结束
     /// </summary>
     private async Task BroadcastBattleEndAsync(GameRoom room, ServerBattle battle)
     {
+        // 生成战斗统计和奖励
+        var playerStats = battle.GenerateBattleStats();
+        var playerRewards = battle.GenerateBattleRewards();
+        
         var notification = new BattleEndNotification
         {
             RoomId = room.RoomId,
             WinnerCamp = battle.WinnerCamp?.ToString() ?? "",
             BattleLogs = new List<string>(battle.BattleLog),
-            EndTimeUtc = DateTime.UtcNow
+            EndTimeUtc = DateTime.UtcNow,
+            BattleDuration = battle.GetBattleDuration(),
+            TotalRounds = battle.CurrentRound,
+            PlayerStats = playerStats,
+            PlayerRewards = playerRewards
         };
         
         foreach (var player in battle.GetAllPlayers())
@@ -1149,6 +1303,74 @@ public class GameServer
                 EquippedDiceNames = player.GetEquippedDice().Select(d => d.Name).ToList()
             });
         }
+        
+        // 检查"长考"成就
+        var eligibleForLongThinking = battle.GetPlayersEligibleForLongThinkingAchievement();
+        foreach (var playerId in eligibleForLongThinking)
+        {
+            // 更新成就进度（以秒为单位）
+            var opponentTime = battle.GetOpponentTotalActionTime(playerId);
+            var (success, isCompleted, currentProgress, error) = _achievementManager.UpdateAchievementProgress(
+                playerId, 
+                "long_thinking", 
+                (int)opponentTime.TotalSeconds
+            );
+            
+            if (success && isCompleted)
+            {
+                Console.WriteLine($"[Server] Player {playerId} completed 'long_thinking' achievement!");
+                // 添加到奖励中
+                var reward = playerRewards.FirstOrDefault(r => r.PlayerId == playerId);
+                if (reward != null && !reward.AchievementsUnlocked.Contains("long_thinking"))
+                {
+                    reward.AchievementsUnlocked.Add("long_thinking");
+                }
+            }
+        }
+        
+        // 检查"秒了"成就 - 获胜方总行动时间在5秒内
+        var eligibleForBlitzVictory = battle.GetPlayersEligibleForBlitzVictoryAchievement();
+        foreach (var playerId in eligibleForBlitzVictory)
+        {
+            var (success, isCompleted, currentProgress, error) = _achievementManager.UpdateAchievementProgress(
+                playerId,
+                "blitz_victory",
+                1
+            );
+            
+            if (success && isCompleted)
+            {
+                Console.WriteLine($"[Server] Player {playerId} completed 'blitz_victory' achievement!");
+                var reward = playerRewards.FirstOrDefault(r => r.PlayerId == playerId);
+                if (reward != null && !reward.AchievementsUnlocked.Contains("blitz_victory"))
+                {
+                    reward.AchievementsUnlocked.Add("blitz_victory");
+                }
+            }
+        }
+        
+        // 检查"奇迹"成就 - 一局内使用飞羽骰子进行闪避连续成功5次
+        var eligibleForMiracle = battle.GetPlayersEligibleForMiracleAchievement();
+        foreach (var playerId in eligibleForMiracle)
+        {
+            var (success, isCompleted, currentProgress, error) = _achievementManager.UpdateAchievementProgress(
+                playerId,
+                "miracle",
+                1
+            );
+            
+            if (success && isCompleted)
+            {
+                Console.WriteLine($"[Server] Player {playerId} completed 'miracle' achievement!");
+                var reward = playerRewards.FirstOrDefault(r => r.PlayerId == playerId);
+                if (reward != null && !reward.AchievementsUnlocked.Contains("miracle"))
+                {
+                    reward.AchievementsUnlocked.Add("miracle");
+                }
+            }
+        }
+
+        HandleAbsoluteLuckAchievement(battle);
         
         var message = NetworkMessage.Create(MessageType.BattleEnd, notification);
         
@@ -1183,7 +1405,10 @@ public class GameServer
         }
         
         // 处理战斗行动
-        room.CurrentBattle.ProcessPlayerAttackChoice(client.UserId, request.SelectedDiceName, request.TargetPlayerId);
+        room.CurrentBattle.ProcessPlayerAttackChoice(client.UserId, request.SelectedDiceName, request.TargetPlayerId, request.ManualDiceValue);
+        
+        // 立即广播战斗状态更新
+        await BroadcastBattleStateAsync(room, room.CurrentBattle);
         
         Console.WriteLine($"[Server] Battle action from {client.PlayerName}: {request.SelectedDiceName} -> {request.TargetPlayerId}");
     }
@@ -1213,9 +1438,50 @@ public class GameServer
         }
         
         // 处理防守行动
-        room.CurrentBattle.ProcessPlayerDefenseChoice(client.UserId, request.SelectedDiceName);
+        room.CurrentBattle.ProcessPlayerDefenseChoice(client.UserId, request.SelectedDiceName, request.ManualDiceValue);
+        
+        // 立即广播战斗状态更新
+        await BroadcastBattleStateAsync(room, room.CurrentBattle);
         
         Console.WriteLine($"[Server] Battle defense from {client.PlayerName}: {request.SelectedDiceName}");
+    }
+
+    /// <summary>
+    /// 处理战斗认输请求
+    /// </summary>
+    private async Task HandleBattleSurrenderAsync(ConnectedClient client, NetworkMessage message)
+    {
+        var request = message.GetData<BattleSurrenderRequest>();
+        if (request == null || string.IsNullOrEmpty(client.CurrentRoomId))
+        {
+            await SendErrorAsync(client, "Invalid battle surrender request");
+            return;
+        }
+
+        GameRoom? room = null;
+        lock (_lock)
+        {
+            _rooms.TryGetValue(client.CurrentRoomId, out room);
+        }
+
+        if (room?.CurrentBattle == null)
+        {
+            await SendErrorAsync(client, "No active battle in room");
+            return;
+        }
+
+        bool success = room.CurrentBattle.HandleSurrender(client.UserId);
+        if (!success)
+        {
+            await SendErrorAsync(client, "Failed to surrender");
+            return;
+        }
+
+        Console.WriteLine($"[Server] Battle surrender from {client.PlayerName}");
+        
+        // 立即广播战斗状态和结束通知
+        await BroadcastBattleStateAsync(room, room.CurrentBattle);
+        await BroadcastBattleEndAsync(room, room.CurrentBattle);
     }
     
     /// <summary>
@@ -1268,7 +1534,10 @@ public class GameServer
     {
         try
         {
+            Console.WriteLine($"[Server] HandleGetAchievements called for user '{client.UserId}'");
+            
             var achievements = _achievementManager.GetUserAchievements(client.UserId);
+            
             var response = NetworkMessage.Create(MessageType.GetAchievementsResponse, new GetAchievementsResponse
             {
                 Success = true,
@@ -1276,12 +1545,13 @@ public class GameServer
             });
             
             await client.SendMessageAsync(response);
-            Console.WriteLine($"[Server] Sent {achievements.Count} achievements to user {client.UserId}");
+            Console.WriteLine($"[Server] Successfully sent {achievements.Count} achievements to user '{client.UserId}'");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Error] Get achievements failed: {ex.Message}");
-            await SendErrorAsync(client, "Failed to get achievements");
+            Console.WriteLine($"[Server] Error in HandleGetAchievementsAsync for user '{client.UserId}': {ex.Message}");
+            Console.WriteLine($"[Server] Exception details: {ex}");
+            await SendErrorAsync(client, $"获取成就列表失败: {ex.Message}");
         }
     }
     
@@ -1295,9 +1565,12 @@ public class GameServer
             var request = message.GetData<UpdateAchievementRequest>();
             if (request == null)
             {
+                Console.WriteLine("[Server] UpdateAchievementRequest is null");
                 await SendErrorAsync(client, "Invalid update achievement request");
                 return;
             }
+
+            Console.WriteLine($"[Server] HandleUpdateAchievement called for user '{client.UserId}', achievement '{request.AchievementId}', delta {request.ProgressDelta}");
             
             var (success, isCompleted, progress, error) = _achievementManager.UpdateAchievementProgress(
                 client.UserId,
@@ -1307,6 +1580,7 @@ public class GameServer
             
             if (!success)
             {
+                Console.WriteLine($"[Server] Failed to update achievement: {error}");
                 var response = NetworkMessage.Create(MessageType.UpdateAchievementResponse, new UpdateAchievementResponse
                 {
                     Success = false,
@@ -1325,6 +1599,7 @@ public class GameServer
             });
             
             await client.SendMessageAsync(response2);
+            Console.WriteLine($"[Server] Achievement update response sent. Completed: {isCompleted}, Progress: {progress}");
             
             // 如果成就完成，发送完成通知
             if (isCompleted)
@@ -1339,13 +1614,14 @@ public class GameServer
                 });
                 
                 await client.SendMessageAsync(notification);
-                Console.WriteLine($"[Server] User {client.UserId} completed achievement {request.AchievementId}");
+                Console.WriteLine($"[Server] User '{client.UserId}' completed achievement '{request.AchievementId}' with {rewards.Count} rewards");
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Error] Update achievement failed: {ex.Message}");
-            await SendErrorAsync(client, "Failed to update achievement");
+            Console.WriteLine($"[Server] Error in HandleUpdateAchievementAsync for user '{client.UserId}': {ex.Message}");
+            Console.WriteLine($"[Server] Exception details: {ex}");
+            await SendErrorAsync(client, $"更新成就失败: {ex.Message}");
         }
     }
     

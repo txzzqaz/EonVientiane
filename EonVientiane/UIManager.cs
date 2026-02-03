@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
+using System.Collections.Generic;
 using EonVientiane.Shared;
 
 namespace EonVientiane;
@@ -16,6 +17,7 @@ public class UIManager
     private readonly GraphicsDeviceManager _graphics;
     private Texture2D _buttonTexture;
     private SpriteFont _buttonFont;
+    private ItemIconProvider _iconProvider;
     
     public UIManager(int menuWidth, int buttonHeight, int buttonMargin, GraphicsDeviceManager graphics)
     {
@@ -27,6 +29,7 @@ public class UIManager
     
     public void SetTexture(Texture2D texture) => _buttonTexture = texture;
     public void SetFont(SpriteFont font) => _buttonFont = font;
+    public void SetIconProvider(ItemIconProvider iconProvider) => _iconProvider = iconProvider;
 
     public LobbyLayout GetLobbyLayout()
     {
@@ -784,19 +787,24 @@ public class UIManager
             // 物品名称
             if (_buttonFont != null)
             {
+                int iconSize = 40;
+                Rectangle iconRect = new Rectangle(itemRect.X + 8, itemRect.Y + (itemRect.Height - iconSize) / 2, iconSize, iconSize);
+                bool hasIcon = _iconProvider?.TryDrawIcon(spriteBatch, stack.Item, iconRect, Color.White) ?? false;
+                int textX = itemRect.X + 10 + (hasIcon ? iconSize + 8 : 0);
+
                 string itemName = stack.Item.Name;
                 if (stack.Quantity > 1)
                     itemName += $" x{stack.Quantity}";
                 
                 spriteBatch.DrawString(_buttonFont, itemName, 
-                    new Vector2(itemRect.X + 10, itemRect.Y + 10), stack.Item.DisplayColor);
+                    new Vector2(textX, itemRect.Y + 10), stack.Item.DisplayColor);
                 
                 // 物品描述（小字）
                 string desc = stack.Item.Description;
                 if (desc.Length > 30)
                     desc = desc.Substring(0, 27) + "...";
                 spriteBatch.DrawString(_buttonFont, desc, 
-                    new Vector2(itemRect.X + 10, itemRect.Y + 35), Color.LightGray * 0.7f, 0f, Vector2.Zero, 0.7f, Microsoft.Xna.Framework.Graphics.SpriteEffects.None, 0f);
+                    new Vector2(textX, itemRect.Y + 35), Color.LightGray * 0.7f, 0f, Vector2.Zero, 0.7f, Microsoft.Xna.Framework.Graphics.SpriteEffects.None, 0f);
                 
                 // 装备类型标记
                 if (stack.Item is Equipment equipment)
@@ -848,6 +856,20 @@ public class UIManager
         if (_buttonFont != null)
         {
             spriteBatch.DrawString(_buttonFont, equipmentTitle, new Vector2(x, y), Color.LightCyan);
+            
+            // 显示骰子数量和限制
+            int diceCount = inventoryManager.EquippedDiceCount;
+            int maxDice = inventoryManager.MaxEquippedDice;
+            string diceInfo = $"骰子: {diceCount}/{maxDice}";
+            Color diceColor = diceCount >= maxDice ? Color.Red : Color.LightGreen;
+            spriteBatch.DrawString(_buttonFont, diceInfo, new Vector2(x + width - 120, y), diceColor, 0f, Vector2.Zero, 0.8f, Microsoft.Xna.Framework.Graphics.SpriteEffects.None, 0f);
+            
+            // 显示饰品槽位和限制
+            int usedSlots = inventoryManager.UsedAccessorySlots;
+            int maxSlots = inventoryManager.MaxAccessorySlots;
+            string slotInfo = $"槽位: {usedSlots}/{maxSlots}";
+            Color slotColor = usedSlots > maxSlots ? Color.Red : Color.LightYellow;
+            spriteBatch.DrawString(_buttonFont, slotInfo, new Vector2(x + width - 120, y + 20), slotColor, 0f, Vector2.Zero, 0.8f, Microsoft.Xna.Framework.Graphics.SpriteEffects.None, 0f);
         }
         
         // 装备槽位
@@ -881,21 +903,26 @@ public class UIManager
             
             if (_buttonFont != null)
             {
+                int iconSize = 46;
+                Rectangle iconRect = new Rectangle(slotRect.X + 8, slotRect.Y + (slotRect.Height - iconSize) / 2, iconSize, iconSize);
+                bool hasIcon = _iconProvider?.TryDrawIcon(spriteBatch, equipment, iconRect, Color.White) ?? false;
+                int textX = slotRect.X + 10 + (hasIcon ? iconSize + 8 : 0);
+
                 // 装备类型标签
                 string typeLabel = equipment.EquipmentType == EquipmentType.Dice ? "[骰子]" : "[饰品]";
                 spriteBatch.DrawString(_buttonFont, typeLabel, 
-                    new Vector2(slotRect.X + 10, slotRect.Y + 8), Color.LightGray, 0f, Vector2.Zero, 0.8f, Microsoft.Xna.Framework.Graphics.SpriteEffects.None, 0f);
+                    new Vector2(textX, slotRect.Y + 8), Color.LightGray, 0f, Vector2.Zero, 0.8f, Microsoft.Xna.Framework.Graphics.SpriteEffects.None, 0f);
                 
                 // 装备名称
                 spriteBatch.DrawString(_buttonFont, equipment.Name, 
-                    new Vector2(slotRect.X + 10, slotRect.Y + 28), equipment.DisplayColor);
+                    new Vector2(textX, slotRect.Y + 28), equipment.DisplayColor);
                 
                 // 装备属性
                 string equipStats = equipment.GetStatsDescription();
                 if (!string.IsNullOrEmpty(equipStats))
                 {
                     spriteBatch.DrawString(_buttonFont, equipStats, 
-                        new Vector2(slotRect.X + 10, slotRect.Y + 48), Color.LightGreen, 0f, Vector2.Zero, 0.6f, Microsoft.Xna.Framework.Graphics.SpriteEffects.None, 0f);
+                        new Vector2(textX, slotRect.Y + 48), Color.LightGreen, 0f, Vector2.Zero, 0.6f, Microsoft.Xna.Framework.Graphics.SpriteEffects.None, 0f);
                 }
             }
         }
@@ -983,44 +1010,74 @@ public class UIManager
         var achievements = achievementSystem.GetAllAchievements();
         var stats = achievementSystem.GetCompletionStats();
 
+        // 绘制进度条区域背景
+        int progressAreaY = panelY + 60;
+        int progressAreaHeight = 80;
+        spriteBatch.Draw(_buttonTexture, 
+            new Rectangle(panelX + 20, progressAreaY, panelWidth - 40, progressAreaHeight),
+            Color.Black * 0.3f);
+
         // 绘制进度条
         int progressBarX = panelX + 30;
-        int progressBarY = panelY + 60;
+        int progressBarY = progressAreaY + 15;
         int progressBarWidth = panelWidth - 60;
         int progressBarHeight = 30;
 
         DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, 
             new Rectangle(progressBarX, progressBarY, progressBarWidth, progressBarHeight), 
-            Color.Black, 2);
+            Color.Gold, 2);
 
         // 绘制进度填充
         int filledWidth = (int)(progressBarWidth * (stats.percentage / 100f));
+        Color fillColor = stats.percentage >= 100 ? Color.LimeGreen : Color.Lerp(Color.SteelBlue, Color.LimeGreen, stats.percentage / 100f);
         spriteBatch.Draw(_buttonTexture, 
             new Rectangle(progressBarX + 2, progressBarY + 2, filledWidth - 4, progressBarHeight - 4),
-            Color.LimeGreen * 0.7f);
+            fillColor * 0.8f);
 
         // 绘制进度文字
         if (_buttonFont != null)
         {
-            string progressText = $"{stats.completed}/{stats.total} ({stats.percentage:F1}%)";
+            string progressText = $"{stats.completed}/{stats.total}";
             Vector2 textSize = _buttonFont.MeasureString(progressText);
             spriteBatch.DrawString(_buttonFont, progressText,
                 new Vector2(progressBarX + progressBarWidth / 2 - textSize.X / 2, progressBarY + 6),
-                Color.White);
+                Color.White, 0f, Vector2.Zero, 0.9f, SpriteEffects.None, 0f);
+
+            // 进度百分比
+            string percentText = $"({stats.percentage:F1}%)";
+            Vector2 percentSize = _buttonFont.MeasureString(percentText);
+            spriteBatch.DrawString(_buttonFont, percentText,
+                new Vector2(progressBarX + progressBarWidth - percentSize.X - 10, progressBarY + 6),
+                Color.LightGray, 0f, Vector2.Zero, 0.8f, SpriteEffects.None, 0f);
         }
 
         // 绘制成就列表
-        int achievementStartY = progressBarY + progressBarHeight + 30;
-        int achievementItemHeight = 80;
-        int achievementSpacing = 10;
+        int achievementStartY = progressAreaY + progressAreaHeight + 20;
+        int achievementItemHeight = 90;
+        int achievementSpacing = 12;
         int achievementDisplayCount = (panelHeight - achievementStartY - 30) / (achievementItemHeight + achievementSpacing);
 
-        for (int i = 0; i < Math.Min(achievementDisplayCount, achievements.Count); i++)
+        // 添加"没有成就"提示
+        if (achievements.Count == 0)
         {
-            var achievement = achievements[i];
-            int itemY = achievementStartY + i * (achievementItemHeight + achievementSpacing);
+            if (_buttonFont != null)
+            {
+                string noAchievementsText = "暂无成就数据，请登录后重试";
+                Vector2 textSize = _buttonFont.MeasureString(noAchievementsText);
+                spriteBatch.DrawString(_buttonFont, noAchievementsText,
+                    new Vector2(panelX + panelWidth / 2 - textSize.X / 2, achievementStartY + 50),
+                    Color.Gray, 0f, Vector2.Zero, 1.0f, SpriteEffects.None, 0f);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < Math.Min(achievementDisplayCount, achievements.Count); i++)
+            {
+                var achievement = achievements[i];
+                int itemY = achievementStartY + i * (achievementItemHeight + achievementSpacing);
 
-            DrawAchievementItem(spriteBatch, panelX + 20, itemY, panelWidth - 40, achievementItemHeight, achievement);
+                DrawAchievementItem(spriteBatch, panelX + 20, itemY, panelWidth - 40, achievementItemHeight, achievement);
+            }
         }
 
         spriteBatch.End();
@@ -1031,61 +1088,297 @@ public class UIManager
     /// </summary>
     private void DrawAchievementItem(SpriteBatch spriteBatch, int x, int y, int width, int height, AchievementSystem.Achievement achievement)
     {
-        // 背景框
-        Color bgColor = achievement.IsCompleted ? Color.DarkGreen * 0.5f : Color.DarkSlateGray * 0.5f;
+        // 背景框 - 根据完成状态使用不同颜色
+        Color bgColor = achievement.IsCompleted ? Color.DarkGreen * 0.4f : Color.DarkSlateGray * 0.4f;
         spriteBatch.Draw(_buttonTexture, new Rectangle(x, y, width, height), bgColor);
 
+        // 左侧完成状态条
+        int statusBarWidth = 5;
+        Color statusColor = achievement.IsCompleted ? Color.LimeGreen : Color.SteelBlue;
+        spriteBatch.Draw(_buttonTexture, new Rectangle(x, y, statusBarWidth, height), statusColor);
+
         // 边框
-        Color borderColor = achievement.IsCompleted ? Color.LimeGreen : Color.Gray;
-        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, new Rectangle(x, y, width, height), borderColor, 2);
+        Color borderColor = achievement.IsCompleted ? Color.LimeGreen : Color.DarkGray;
+        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, new Rectangle(x, y, width, height), borderColor, 1);
 
         int contentX = x + 15;
-        int contentY = y + 10;
+        int contentY = y + 8;
         int contentWidth = width - 30;
 
         if (_buttonFont != null)
         {
-            // 成就名称
+            // 成就名称 - 更大的字体
             Color nameColor = achievement.IsCompleted ? Color.Gold : Color.White;
             spriteBatch.DrawString(_buttonFont, achievement.Name, 
-                new Vector2(contentX, contentY), nameColor);
+                new Vector2(contentX, contentY), nameColor, 0f, Vector2.Zero, 1.0f, SpriteEffects.None, 0f);
 
-            // 成就描述
+            // 成就描述 - 较小的字体
+            Color descColor = achievement.IsCompleted ? Color.PaleGoldenrod : Color.LightGray;
             spriteBatch.DrawString(_buttonFont, achievement.Description,
-                new Vector2(contentX, contentY + 25), Color.LightGray, 0f, Vector2.Zero, 0.8f, SpriteEffects.None, 0f);
+                new Vector2(contentX, contentY + 22), descColor, 0f, Vector2.Zero, 0.75f, SpriteEffects.None, 0f);
 
             // 进度条
-            int progressBarWidth = contentWidth;
-            int progressBarHeight = 15;
-            int progressBarY = contentY + 50;
+            int progressBarX = contentX;
+            int progressBarY = contentY + 45;
+            int progressBarWidth = contentWidth - 80;
+            int progressBarHeight = 14;
 
             DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture,
-                new Rectangle(contentX, progressBarY, progressBarWidth, progressBarHeight),
+                new Rectangle(progressBarX, progressBarY, progressBarWidth, progressBarHeight),
                 Color.Black, 1);
 
-            int filledWidth = (int)(progressBarWidth * (achievement.Progress / (float)achievement.RequiredProgress));
+            // 计算填充宽度
+            float progressPercent = achievement.RequiredProgress > 0 
+                ? achievement.Progress / (float)achievement.RequiredProgress 
+                : 0;
+            int filledWidth = (int)(progressBarWidth * progressPercent);
+            
             Color progressColor = achievement.IsCompleted ? Color.LimeGreen : Color.SteelBlue;
-            spriteBatch.Draw(_buttonTexture,
-                new Rectangle(contentX + 1, progressBarY + 1, Math.Max(1, filledWidth - 2), progressBarHeight - 2),
-                progressColor);
+            if (filledWidth > 0)
+            {
+                spriteBatch.Draw(_buttonTexture,
+                    new Rectangle(progressBarX + 1, progressBarY + 1, Math.Max(1, filledWidth - 2), progressBarHeight - 2),
+                    progressColor);
+            }
 
-            // 进度文字
+            // 进度文字 - 在进度条旁边
             string progressText = $"{achievement.Progress}/{achievement.RequiredProgress}";
             Vector2 progressTextSize = _buttonFont.MeasureString(progressText);
+            Color progressTextColor = achievement.IsCompleted ? Color.LimeGreen : Color.White;
             spriteBatch.DrawString(_buttonFont, progressText,
-                new Vector2(contentX + progressBarWidth / 2 - progressTextSize.X / 2, progressBarY + 1),
-                Color.White, 0f, Vector2.Zero, 0.7f, SpriteEffects.None, 0f);
+                new Vector2(progressBarX + progressBarWidth + 10, progressBarY + 1),
+                progressTextColor, 0f, Vector2.Zero, 0.75f, SpriteEffects.None, 0f);
 
-            // 完成标记
-            if (achievement.IsCompleted)
+            // 完成标记和时间
+            if (achievement.IsCompleted && achievement.CompletedTime.HasValue)
             {
-                string completedText = "已完成";
+                string completedText = "✓ 已完成";
                 Vector2 completedSize = _buttonFont.MeasureString(completedText);
                 spriteBatch.DrawString(_buttonFont, completedText,
-                    new Vector2(contentX + contentWidth - completedSize.X, contentY + 25),
+                    new Vector2(contentX + contentWidth - completedSize.X, contentY + 50),
                     Color.LimeGreen, 0f, Vector2.Zero, 0.8f, SpriteEffects.None, 0f);
+
+                // 显示完成时间
+                string completedDate = achievement.CompletedTime.Value.ToString("yyyy-MM-dd");
+                Vector2 dateSize = _buttonFont.MeasureString(completedDate);
+                spriteBatch.DrawString(_buttonFont, completedDate,
+                    new Vector2(contentX + contentWidth - dateSize.X, contentY + 65),
+                    Color.LightGray, 0f, Vector2.Zero, 0.7f, SpriteEffects.None, 0f);
             }
         }
+    }
+
+    /// <summary>
+    /// 绘制对战历史面板（按钮3）
+    /// </summary>
+    public void DrawBattleHistoryPanel(SpriteBatch spriteBatch, BattleHistoryManager battleHistoryManager, 
+        string currentPlayerName, int scrollOffset, int? selectedRecordIndex)
+    {
+        int panelX = _menuWidth;
+        int panelY = 0;
+        int panelWidth = _graphics.PreferredBackBufferWidth - _menuWidth;
+        int panelHeight = _graphics.PreferredBackBufferHeight;
+
+        spriteBatch.Begin();
+
+        // 背景
+        Rectangle panelRect = new Rectangle(panelX, panelY, panelWidth, panelHeight);
+        spriteBatch.Draw(_buttonTexture, panelRect, Color.DarkCyan * 0.6f);
+
+        // 标题
+        string title = "对战历史";
+        if (_buttonFont != null)
+        {
+            spriteBatch.DrawString(_buttonFont, title, new Vector2(panelX + 30, panelY + 20), Color.White, 0f, Vector2.Zero, 1.2f, SpriteEffects.None, 0f);
+        }
+
+        // 获取当前玩家的对战记录
+        List<BattleRecord> records = string.IsNullOrEmpty(currentPlayerName) 
+            ? battleHistoryManager.GetAllBattleRecords() 
+            : battleHistoryManager.GetBattleRecordsByPlayer(currentPlayerName);
+
+        // 显示统计信息
+        int statsY = panelY + 60;
+        if (_buttonFont != null && !string.IsNullOrEmpty(currentPlayerName))
+        {
+            var (totalBattles, wins, losses, draws) = battleHistoryManager.GetPlayerStats(currentPlayerName);
+            spriteBatch.DrawString(_buttonFont, $"玩家: {currentPlayerName}", 
+                new Vector2(panelX + 30, statsY), Color.LightYellow);
+            
+            string statsText = $"总场次: {totalBattles} | 胜利: {wins} | 失败: {losses} | 平手: {draws}";
+            spriteBatch.DrawString(_buttonFont, statsText, 
+                new Vector2(panelX + 30, statsY + 30), Color.LightCyan, 0f, Vector2.Zero, 0.9f, SpriteEffects.None, 0f);
+        }
+
+        // 列表标题行
+        int listHeaderY = panelY + 120;
+        spriteBatch.Draw(_buttonTexture, new Rectangle(panelX + 20, listHeaderY, panelWidth - 40, 30), Color.DarkSlateGray);
+        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, new Rectangle(panelX + 20, listHeaderY, panelWidth - 40, 30), Color.Gray, 1);
+        
+        if (_buttonFont != null)
+        {
+            spriteBatch.DrawString(_buttonFont, "时间", new Vector2(panelX + 30, listHeaderY + 6), Color.LightGray, 0f, Vector2.Zero, 0.9f, SpriteEffects.None, 0f);
+            spriteBatch.DrawString(_buttonFont, "对手", new Vector2(panelX + 200, listHeaderY + 6), Color.LightGray, 0f, Vector2.Zero, 0.9f, SpriteEffects.None, 0f);
+            spriteBatch.DrawString(_buttonFont, "结果", new Vector2(panelX + 450, listHeaderY + 6), Color.LightGray, 0f, Vector2.Zero, 0.9f, SpriteEffects.None, 0f);
+            spriteBatch.DrawString(_buttonFont, "等级", new Vector2(panelX + 600, listHeaderY + 6), Color.LightGray, 0f, Vector2.Zero, 0.9f, SpriteEffects.None, 0f);
+        }
+
+        spriteBatch.End();
+
+        // 绘制对战记录列表（带剪裁）
+        DrawBattleRecordsList(spriteBatch, panelX + 20, listHeaderY + 35, panelWidth - 40, panelHeight - (listHeaderY + 35 + 40),
+            records, scrollOffset, selectedRecordIndex);
+
+        // 绘制详情面板
+        if (selectedRecordIndex.HasValue && selectedRecordIndex.Value >= 0 && selectedRecordIndex.Value < records.Count)
+        {
+            DrawBattleRecordDetail(spriteBatch, records[selectedRecordIndex.Value], panelX + 30, panelHeight - 200, panelWidth - 60);
+        }
+    }
+
+    /// <summary>
+    /// 绘制对战记录列表
+    /// </summary>
+    private void DrawBattleRecordsList(SpriteBatch spriteBatch, int x, int y, int width, int height, 
+        List<BattleRecord> records, int scrollOffset, int? selectedIndex)
+    {
+        const int recordHeight = 50;
+        const int recordSpacing = 5;
+        int maxVisibleRecords = height / (recordHeight + recordSpacing);
+
+        // 设置剪裁区域
+        Rectangle scissorRect = new Rectangle(x, y, width, height);
+        RasterizerState rasterizerState = new RasterizerState { ScissorTestEnable = true };
+
+        spriteBatch.Begin(rasterizerState: rasterizerState);
+        spriteBatch.GraphicsDevice.ScissorRectangle = scissorRect;
+
+        for (int i = 0; i < records.Count; i++)
+        {
+            int recordY = y + i * (recordHeight + recordSpacing) - scrollOffset;
+
+            if (recordY + recordHeight < y || recordY > y + height)
+                continue;
+
+            var record = records[i];
+            Rectangle recordRect = new Rectangle(x, recordY, width, recordHeight);
+
+            // 背景色（选中高亮）
+            Color bgColor = i == selectedIndex ? Color.Gold * 0.3f : Color.DarkSlateGray * 0.8f;
+            spriteBatch.Draw(_buttonTexture, recordRect, bgColor);
+            DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, recordRect, Color.Gray, 1);
+
+            if (_buttonFont != null)
+            {
+                // 对战时间
+                string timeText = record.BattleDateTime.ToString("MM-dd HH:mm");
+                spriteBatch.DrawString(_buttonFont, timeText, new Vector2(recordRect.X + 10, recordRect.Y + 6), Color.White, 0f, Vector2.Zero, 0.85f, SpriteEffects.None, 0f);
+
+                // 对手名称
+                string opponentText = record.OpponentName ?? "未知";
+                spriteBatch.DrawString(_buttonFont, opponentText, new Vector2(recordRect.X + 200, recordRect.Y + 6), Color.LightCyan, 0f, Vector2.Zero, 0.85f, SpriteEffects.None, 0f);
+
+                // 对战结果
+                string resultText = BattleHistoryManager.GetResultDescription(record.Result);
+                Color resultColor = BattleHistoryManager.GetResultColor(record.Result);
+                spriteBatch.DrawString(_buttonFont, resultText, new Vector2(recordRect.X + 450, recordRect.Y + 6), resultColor, 0f, Vector2.Zero, 0.85f, SpriteEffects.None, 0f);
+
+                // 等级信息
+                string levelText = $"Lv.{record.OpponentLevel}";
+                spriteBatch.DrawString(_buttonFont, levelText, new Vector2(recordRect.X + 600, recordRect.Y + 6), Color.LightYellow, 0f, Vector2.Zero, 0.85f, SpriteEffects.None, 0f);
+
+                // 底部显示赢家
+                string winnerText = string.IsNullOrEmpty(record.WinnerName) ? "平手" : $"{record.WinnerName}胜";
+                Color winnerColor = record.Result == 1 ? Color.LimeGreen : (record.Result == 0 ? Color.OrangeRed : Color.Yellow);
+                spriteBatch.DrawString(_buttonFont, winnerText, new Vector2(recordRect.X + 10, recordRect.Y + 28), winnerColor, 0f, Vector2.Zero, 0.75f, SpriteEffects.None, 0f);
+            }
+        }
+
+        spriteBatch.End();
+
+        // 绘制滚动条
+        if (records.Count > maxVisibleRecords)
+        {
+            int totalHeight = records.Count * (recordHeight + recordSpacing);
+            int scrollBarWidth = 8;
+            int scrollBarX = x + width - scrollBarWidth - 2;
+            float scrollBarThumbHeight = Math.Max(20, height * (height / (float)totalHeight));
+            float maxScrollOffset = totalHeight - height;
+            float scrollBarThumbY = y + (scrollOffset / maxScrollOffset) * (height - scrollBarThumbHeight);
+
+            spriteBatch.Begin();
+
+            // 滚动条背景
+            spriteBatch.Draw(_buttonTexture, new Rectangle(scrollBarX, y, scrollBarWidth, height), Color.Black * 0.3f);
+
+            // 滚动条滑块
+            spriteBatch.Draw(_buttonTexture, new Rectangle(scrollBarX, (int)scrollBarThumbY, scrollBarWidth, (int)scrollBarThumbHeight), Color.White * 0.6f);
+
+            spriteBatch.End();
+        }
+    }
+
+    /// <summary>
+    /// 绘制对战记录详情
+    /// </summary>
+    private void DrawBattleRecordDetail(SpriteBatch spriteBatch, BattleRecord record, int x, int y, int width)
+    {
+        int detailHeight = 180;
+        Rectangle detailRect = new Rectangle(x, y, width, detailHeight);
+
+        spriteBatch.Begin();
+
+        // 详情面板背景
+        spriteBatch.Draw(_buttonTexture, detailRect, Color.Black * 0.4f);
+        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, detailRect, Color.SteelBlue, 2);
+
+        if (_buttonFont != null)
+        {
+            int detailX = x + 15;
+            int detailY = y + 10;
+            int lineHeight = 25;
+
+            // 详情标题
+            spriteBatch.DrawString(_buttonFont, "对战详情", new Vector2(detailX, detailY), Color.Gold, 0f, Vector2.Zero, 1.0f, SpriteEffects.None, 0f);
+
+            detailY += 30;
+
+            // 本地玩家信息
+            spriteBatch.DrawString(_buttonFont, $"玩家: {record.LocalPlayerName} (Lv.{record.LocalPlayerLevel})", 
+                new Vector2(detailX, detailY), Color.LightGreen);
+            detailY += lineHeight;
+
+            // 对手信息
+            spriteBatch.DrawString(_buttonFont, $"对手: {record.OpponentName} (Lv.{record.OpponentLevel})", 
+                new Vector2(detailX, detailY), Color.LightCyan);
+            detailY += lineHeight;
+
+            // 对战结果
+            string resultText = BattleHistoryManager.GetResultDescription(record.Result);
+            Color resultColor = BattleHistoryManager.GetResultColor(record.Result);
+            spriteBatch.DrawString(_buttonFont, $"结果: {resultText}", 
+                new Vector2(detailX, detailY), resultColor);
+            detailY += lineHeight;
+
+            // 赢家
+            if (!string.IsNullOrEmpty(record.WinnerName))
+            {
+                spriteBatch.DrawString(_buttonFont, $"赢家: {record.WinnerName}", 
+                    new Vector2(detailX, detailY), Color.Gold);
+            }
+            else
+            {
+                spriteBatch.DrawString(_buttonFont, "结果: 平手", 
+                    new Vector2(detailX, detailY), Color.Yellow);
+            }
+            detailY += lineHeight;
+
+            // 对战时间和持续时间
+            spriteBatch.DrawString(_buttonFont, $"时间: {record.BattleDateTime:yyyy-MM-dd HH:mm:ss} (耗时{record.DurationSeconds}秒)", 
+                new Vector2(detailX, detailY), Color.LightGray, 0f, Vector2.Zero, 0.85f, SpriteEffects.None, 0f);
+        }
+
+        spriteBatch.End();
     }
 }
 

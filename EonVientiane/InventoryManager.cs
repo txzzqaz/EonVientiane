@@ -22,6 +22,12 @@ public class InventoryManager
     // 背包滚动偏移
     private int _inventoryScrollOffset = 0;
     
+    // 饰品槽系统
+    private int _maxAccessorySlots = 12; // 初始12个槽位
+    
+    // 最多可装备骰子数量
+    private int _maxEquippedDice = 8;
+    
     /// <summary>
     /// 背包物品列表（只读）
     /// </summary>
@@ -60,6 +66,42 @@ public class InventoryManager
     /// 是否已满（仅当设置了上限时有效）
     /// </summary>
     public bool IsFull => _maxCapacity > 0 && UsedSlots >= _maxCapacity;
+    
+    /// <summary>
+    /// 最多可装备骰子数量（上限8个）
+    /// </summary>
+    public int MaxEquippedDice => _maxEquippedDice;
+    
+    /// <summary>
+    /// 当前已装备骰子数量
+    /// </summary>
+    public int EquippedDiceCount => EquippedItems.OfType<Dice>().Count();
+    
+    /// <summary>
+    /// 最多饰品槽位数
+    /// </summary>
+    public int MaxAccessorySlots
+    {
+        get => _maxAccessorySlots;
+        set => _maxAccessorySlots = Math.Max(0, value);
+    }
+    
+    /// <summary>
+    /// 当前已使用的饰品槽位数
+    /// </summary>
+    public int UsedAccessorySlots
+    {
+        get
+        {
+            var equippedAccessories = EquippedItems.OfType<Accessory>().ToList();
+            return equippedAccessories.Sum(a => a.AccessorySlotsCost);
+        }
+    }
+    
+    /// <summary>
+    /// 当前可用饰品槽位数
+    /// </summary>
+    public int AvailableAccessorySlots => Math.Max(0, MaxAccessorySlots - UsedAccessorySlots);
     
     public InventoryManager()
     {
@@ -191,7 +233,15 @@ public class InventoryManager
             return false;
         
         var stack = _inventoryItems[inventoryIndex];
-        if (stack.Item is not Equipment)
+        if (stack.Item is not Equipment equipment)
+            return false;
+        
+        // 检查骰子数量限制
+        if (equipment is Dice && EquippedDiceCount >= MaxEquippedDice)
+            return false;
+        
+        // 检查饰品槽位限制
+        if (equipment is Accessory accessory && accessory.AccessorySlotsCost > AvailableAccessorySlots)
             return false;
         
         _inventoryItems.RemoveAt(inventoryIndex);
@@ -298,6 +348,8 @@ public class InventoryManager
         // 添加骰子装备
         var d6Dice = new D6Dice(); // 默认同时可作为主动/被动骰子
         var featheredDice = new FeatheredDice();
+        var guashaDice = new GuaShaParquetDice();
+        var errorDice = new ErrorDice();
         
         // 添加饰品装备
         var selfAccessory = new SelfAccessory();
@@ -316,51 +368,216 @@ public class InventoryManager
             DisplayColor = Microsoft.Xna.Framework.Color.Blue
         };
         
-        var goldCoin = new Item("gold_coin", "金币", "闪闪发光的金币", ItemType.Material)
-        {
-            MaxStackSize = 9999,
-            DisplayColor = Microsoft.Xna.Framework.Color.Gold
-        };
-        
         // 添加到背包
         AddItem(d6Dice);
         AddItem(featheredDice);
+        AddItem(guashaDice);
+        AddItem(errorDice);
         AddItem(selfAccessory);
         AddItem(ascensionProof);
         AddItem(healthPotion, 15);
         AddItem(manaPotion, 10);
-        AddItem(goldCoin, 250);
     }
     
     #endregion
 }
 
+/// ═══════════════════════════════════════════════════════════════════════════════
+/// ████████████████████████████  道具创建核心流程  ████████████████████████████
+/// ═══════════════════════════════════════════════════════════════════════════════
+/// 
+/// 【重要】在制作新道具时必须遵循以下步骤：
+/// 
+/// 1. 【创建道具类】
+///    - 骰子放在: EonVientiane/Dices/ 目录，继承 Dice 类
+///    - 饰品放在: EonVientiane/Accessories/ 目录，继承 Accessory 类
+///    - 参考文档: docs/ITEM_CREATION_GUIDE.md
+/// 
+/// 2. 【本文件注册】→ RegisterAllItems() 方法中添加
+///    示例: _registry.RegisterItem("item_id", () => new ItemClass());
+/// 
+/// 3. 【服务器初始化】→ EonVientianeServer/ItemInitializer.cs 中：
+///    - GetAllItems(): 添加到道具列表
+///    - CreateItemFromStackData(): 如果是装备类需要添加
+/// 
+/// 4. 【获取方式配置】
+///    - 新用户初始化: ItemInitializer.GetInitialInventory()
+///    - 成就奖励: AchievementSystem.CreateRewardItem()
+/// 
+/// 5. 【测试】编译 → 启动本地测试 → 验证功能
+/// 
+/// ✓ 完整流程详见: docs/ITEM_CREATION_GUIDE.md
+/// ═══════════════════════════════════════════════════════════════════════════════
+/// 
+/// <summary>
+/// 物品工厂 - 用于创建和管理所有道具
+/// </summary>
 public static class ItemFactory
 {
-    public static Item Create(string itemId, string itemName)
+    private static ItemRegistry _registry;
+    private static bool _initialized = false;
+    
+    /// <summary>
+    /// 初始化工厂，注册所有可用的道具
+    /// </summary>
+    public static void Initialize()
     {
-        return itemId switch
+        if (_initialized)
+            return;
+        
+        _registry = new ItemRegistry();
+        RegisterAllItems();
+        _initialized = true;
+    }
+    
+    /// <summary>
+    /// 确保已初始化
+    /// </summary>
+    private static void EnsureInitialized()
+    {
+        if (!_initialized)
+            Initialize();
+    }
+    
+    /// <summary>
+    /// 【★ 道具注册中心 ★】注册所有可用的道具
+    /// 
+    /// 每个新道具都必须在这里注册！
+    /// 格式: _registry.RegisterItem("item_id", () => new ItemClass());
+    /// 
+    /// 【步骤检查清单】
+    /// ✓ 步骤1: 在 Dices/ 或 Accessories/ 中创建道具类
+    /// ✓ 步骤2: 在下方添加注册语句 ← 【你在这里】
+    /// ✓ 步骤3: 在 ItemInitializer.cs 的 GetAllItems() 中添加
+    /// ✓ 步骤4: 在 ItemInitializer.cs 的 CreateItemFromStackData() 中添加(装备类)
+    /// ✓ 步骤5: 根据需要在初始化方法中设置获取方式
+    /// ✓ 步骤6: 编译测试
+    /// 
+    /// 【道具ID命名规则】snake_case 全小写，例: my_dice_name
+    /// 【参考文档】docs/ITEM_CREATION_GUIDE.md
+    /// </summary>
+    private static void RegisterAllItems()
+    {
+        // ──────────────────── 骰子 ────────────────────
+        // 主动骰子(AD) + 被动骰子(PD) + 双向骰子(Both)
+        _registry.RegisterItem("d6_dice", () => new D6Dice());
+        _registry.RegisterItem("feathered_dice", () => new FeatheredDice());
+        _registry.RegisterItem("guasha_parquet", () => new GuaShaParquetDice());
+        _registry.RegisterItem("spring_breeze", () => new SpringBreezeDice());
+        _registry.RegisterItem("error_dice", () => new ErrorDice());
+        
+        // 【新增骰子请在这里添加】
+        // _registry.RegisterItem("your_dice_id", () => new YourDiceClass());
+        
+        // ──────────────────── 饰品 ────────────────────
+        // 被动属性加成、战斗事件触发、槽位消耗
+        _registry.RegisterItem("self_accessory", () => new SelfAccessory());
+        _registry.RegisterItem("ascension_proof", () => new AscensionProofAccessory());
+        _registry.RegisterItem("holy_fire", () => new HolyFireAccessory());
+        _registry.RegisterItem("wanderer_heart", () => new WandererHeartAccessory());
+        _registry.RegisterItem("foresight", () => new ForesightAccessory());
+        _registry.RegisterItem("concerted_effort", () => new ConcertedEffortAccessory());
+        
+        // 【新增饰品请在这里添加】
+        // _registry.RegisterItem("your_accessory_id", () => new YourAccessoryClass());
+        
+        // ──────────────────── 消耗品 ────────────────────
+        _registry.RegisterItem("health_potion", () => new Item("health_potion", "生命药水", "恢复50点生命", ItemType.Consumable)
         {
-            "d6_dice" => new D6Dice(),
-            "feathered_dice" => new FeatheredDice(),
-            "self_accessory" => new SelfAccessory(),
-            "ascension_proof" => new AscensionProofAccessory(),
-            "health_potion" => new Item("health_potion", "生命药水", "恢复50点生命", ItemType.Consumable)
-            {
-                MaxStackSize = 99,
-                DisplayColor = Microsoft.Xna.Framework.Color.Red
-            },
-            "mana_potion" => new Item("mana_potion", "魔力药水", "恢复50点魔力", ItemType.Consumable)
-            {
-                MaxStackSize = 99,
-                DisplayColor = Microsoft.Xna.Framework.Color.Blue
-            },
-            "gold_coin" => new Item("gold_coin", "金币", "闪闪发光的金币", ItemType.Material)
-            {
-                MaxStackSize = 9999,
-                DisplayColor = Microsoft.Xna.Framework.Color.Gold
-            },
-            _ => new Item(itemId, string.IsNullOrWhiteSpace(itemName) ? itemId : itemName, string.Empty, ItemType.Other)
+            MaxStackSize = 99,
+            DisplayColor = Microsoft.Xna.Framework.Color.Red
+        });
+        _registry.RegisterItem("mana_potion", () => new Item("mana_potion", "魔力药水", "恢复50点魔力", ItemType.Consumable)
+        {
+            MaxStackSize = 99,
+            DisplayColor = Microsoft.Xna.Framework.Color.Blue
+        });
+        
+        // 【新增消耗品请在这里添加】
+    }
+    
+    /// <summary>
+    /// 创建物品实例
+    /// </summary>
+    public static Item Create(string itemId, string itemName = null)
+    {
+        EnsureInitialized();
+        
+        // 如果注册表中有该物品，使用注册的工厂创建
+        if (_registry.IsItemRegistered(itemId))
+        {
+            return _registry.CreateItem(itemId);
+        }
+        
+        // 否则创建通用物品
+        return new Item(itemId, string.IsNullOrWhiteSpace(itemName) ? itemId : itemName, string.Empty, ItemType.Other);
+    }
+    
+    /// <summary>
+    /// 根据物品ID创建物品堆栈
+    /// </summary>
+    public static ItemStack CreateItemStack(string itemId, int quantity = 1)
+    {
+        var item = Create(itemId);
+        if (item == null)
+            return null;
+        return new ItemStack(item, quantity);
+    }
+    
+    /// <summary>
+    /// 获取所有注册的物品ID列表
+    /// </summary>
+    public static IEnumerable<string> GetAllItemIds()
+    {
+        EnsureInitialized();
+        return _registry.GetAllItemIds();
+    }
+    
+    /// <summary>
+    /// 获取所有注册的骰子ID列表
+    /// </summary>
+    public static IEnumerable<string> GetAllDiceIds()
+    {
+        return new[] { "d6_dice", "feathered_dice", "guasha_parquet", "spring_breeze", "error_dice" };
+    }
+    
+    /// <summary>
+    /// 获取所有注册的饰品ID列表
+    /// </summary>
+    public static IEnumerable<string> GetAllAccessoryIds()
+    {
+        return new[] { "self_accessory", "ascension_proof", "holy_fire", "wanderer_heart", "foresight", "concerted_effort" };
+    }
+    
+    /// <summary>
+    /// 检查物品ID是否已注册
+    /// </summary>
+    public static bool IsItemRegistered(string itemId)
+    {
+        EnsureInitialized();
+        return _registry.IsItemRegistered(itemId);
+    }
+    
+    /// <summary>
+    /// 创建骰子列表（用于初始化玩家装备）
+    /// </summary>
+    public static List<Dice> CreateStarterDices()
+    {
+        return new List<Dice>
+        {
+            new D6Dice(DiceUsageType.Both),
+            new FeatheredDice()
+        };
+    }
+    
+    /// <summary>
+    /// 创建饰品列表（用于初始化玩家装备）
+    /// </summary>
+    public static List<Accessory> CreateStarterAccessories()
+    {
+        return new List<Accessory>
+        {
+            new SelfAccessory()
         };
     }
 }

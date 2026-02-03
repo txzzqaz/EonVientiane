@@ -85,7 +85,7 @@ public virtual DefenseResult ExecutePassiveAction(Player defender, int attackDam
   - 如果 ATKP ≤ DEFP：完全防御，实际伤害 = 0
   - 如果 ATKP > DEFP：实际伤害 = ATKP - DEFP
 
-**飞羽骰子（Feathered Dice）：**
+**飞羽（Feathered Dice）：**
 - **仅被动使用 (PD)**：
   - 为 (Counter + ATKP × 2) 面的骰子
   - Roll出1至该数值，作为 AVOP（闪避点数）
@@ -327,7 +327,7 @@ player.AddEffect(boostEffect);
 ### 当前实现
 - 自动选择第一个可用骰子（不支持玩家选择）
 - 自动随机选择目标（不支持指定目标）
-- 基于 D6 和飞羽骰子的简单对抗系统
+- 基于 D6 和飞羽的简单对抗系统
 
 ### 可优化的方向
 1. **玩家交互**：实现骰子和目标的选择菜单

@@ -35,15 +35,14 @@ int height = inputMgr.PlatformAdapter.GetRecommendedButtonHeight();
 ## 📚 文档导航
 
 ### 新用户？从这里开始
-1. **[MOBILE_ADAPTATION.md](docs/MOBILE_ADAPTATION.md)** - 完整的使用指南
+1. **[MOBILE_GUIDE.md](MOBILE_GUIDE.md)** - 移动端适配与实现指南
 2. **[MobileCompatibilityExample.cs](MobileCompatibilityExample.cs)** - 10个代码示例
 
 ### 开发者？查看这些
-1. **[MOBILE_IMPLEMENTATION_SUMMARY.md](docs/MOBILE_IMPLEMENTATION_SUMMARY.md)** - 架构和实现细节
-2. **[IMPLEMENTATION_COMPLETE.md](docs/IMPLEMENTATION_COMPLETE.md)** - 完成状态和下一步
+1. **[MOBILE_GUIDE.md](MOBILE_GUIDE.md)** - 架构与API用法
 
 ### 项目经理？看这个
-- **[MOBILE_IMPLEMENTATION_REPORT.md](MOBILE_IMPLEMENTATION_REPORT.md)** - 项目完成报告
+- （已归档）项目完成报告
 
 ---
 
@@ -210,9 +209,9 @@ _graphics.PreferredBackBufferHeight = 960;  // 移动设备高度
 
 想要掌握更多细节？
 
-1. **API 文档** - 见 [MOBILE_ADAPTATION.md](docs/MOBILE_ADAPTATION.md)
+1. **API 文档** - 见 [MOBILE_GUIDE.md](MOBILE_GUIDE.md)
 2. **代码示例** - 见 [MobileCompatibilityExample.cs](MobileCompatibilityExample.cs)
-3. **架构设计** - 见 [MOBILE_IMPLEMENTATION_SUMMARY.md](docs/MOBILE_IMPLEMENTATION_SUMMARY.md)
+3. **架构设计** - 见 [MOBILE_GUIDE.md](MOBILE_GUIDE.md)
 
 ---
 

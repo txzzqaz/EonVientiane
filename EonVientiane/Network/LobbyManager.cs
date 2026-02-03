@@ -309,7 +309,7 @@ public class LobbyManager
     /// <summary>
     /// 发送战斗行动请求
     /// </summary>
-    public async Task SendBattleActionAsync(string selectedDiceName, string targetPlayerId)
+    public async Task SendBattleActionAsync(string selectedDiceName, string targetPlayerId, int? manualDiceValue = null)
     {
         if (!IsAuthenticated || string.IsNullOrEmpty(CurrentRoom?.RoomId))
             return;
@@ -319,7 +319,8 @@ public class LobbyManager
             RoomId = CurrentRoom.RoomId,
             PlayerId = UserId,
             SelectedDiceName = selectedDiceName,
-            TargetPlayerId = targetPlayerId ?? ""
+            TargetPlayerId = targetPlayerId ?? "",
+            ManualDiceValue = manualDiceValue
         };
         
         var message = NetworkMessage.Create(MessageType.BattleActionRequest, request);
@@ -330,7 +331,7 @@ public class LobbyManager
     /// <summary>
     /// 发送战斗防守请求
     /// </summary>
-    public async Task SendBattleDefenseAsync(string selectedDiceName)
+    public async Task SendBattleDefenseAsync(string selectedDiceName, int? manualDiceValue = null)
     {
         if (!IsAuthenticated || string.IsNullOrEmpty(CurrentRoom?.RoomId))
             return;
@@ -339,12 +340,32 @@ public class LobbyManager
         {
             RoomId = CurrentRoom.RoomId,
             PlayerId = UserId,
-            SelectedDiceName = selectedDiceName
+            SelectedDiceName = selectedDiceName,
+            ManualDiceValue = manualDiceValue
         };
         
         var message = NetworkMessage.Create(MessageType.BattleDefenseRequest, request);
         await _networkClient.SendMessageAsync(message);
         System.Diagnostics.Debug.WriteLine($"[LobbyManager] Battle defense sent: {selectedDiceName}");
+    }
+
+    /// <summary>
+    /// 发送战斗认输请求
+    /// </summary>
+    public async Task SendBattleSurrenderAsync()
+    {
+        if (!IsAuthenticated || string.IsNullOrEmpty(CurrentRoom?.RoomId))
+            return;
+
+        var request = new BattleSurrenderRequest
+        {
+            RoomId = CurrentRoom.RoomId,
+            PlayerId = UserId
+        };
+
+        var message = NetworkMessage.Create(MessageType.BattleSurrenderRequest, request);
+        await _networkClient.SendMessageAsync(message);
+        System.Diagnostics.Debug.WriteLine("[LobbyManager] Battle surrender sent");
     }
     
     /// <summary>
@@ -561,8 +582,12 @@ public class LobbyManager
     public async Task GetAchievementsAsync()
     {
         if (!IsAuthenticated)
+        {
+            Console.WriteLine("[LobbyManager] Cannot get achievements: not authenticated");
             return;
+        }
 
+        Console.WriteLine($"[LobbyManager] Requesting achievements for user {UserId}");
         var request = new GetAchievementsRequest
         {
             UserId = UserId ?? string.Empty
@@ -578,8 +603,12 @@ public class LobbyManager
     public async Task UpdateAchievementAsync(string achievementId, int progressDelta)
     {
         if (!IsAuthenticated)
+        {
+            Console.WriteLine("[LobbyManager] Cannot update achievement: not authenticated");
             return;
+        }
 
+        Console.WriteLine($"[LobbyManager] Updating achievement '{achievementId}' with delta {progressDelta}");
         var request = new UpdateAchievementRequest
         {
             UserId = UserId ?? string.Empty,
@@ -593,32 +622,70 @@ public class LobbyManager
 
     private void HandleGetAchievementsResponse(NetworkMessage message)
     {
-        var response = message.GetData<GetAchievementsResponse>();
-        if (response != null && response.Success)
+        try
         {
-            AchievementsReceived?.Invoke(response.Achievements);
+            var response = message.GetData<GetAchievementsResponse>();
+            if (response != null && response.Success)
+            {
+                Console.WriteLine($"[LobbyManager] Received {response.Achievements.Count} achievements from server");
+                AchievementsReceived?.Invoke(response.Achievements);
+            }
+            else
+            {
+                string errorMsg = response?.ErrorMessage ?? "Failed to get achievements";
+                Console.WriteLine($"[LobbyManager] Get achievements failed: {errorMsg}");
+                ErrorOccurred?.Invoke(errorMsg);
+            }
         }
-        else
+        catch (Exception ex)
         {
-            ErrorOccurred?.Invoke(response?.ErrorMessage ?? "Failed to get achievements");
+            Console.WriteLine($"[LobbyManager] Error handling GetAchievementsResponse: {ex.Message}");
+            ErrorOccurred?.Invoke($"处理成就列表失败: {ex.Message}");
         }
     }
 
     private void HandleUpdateAchievementResponse(NetworkMessage message)
     {
-        var response = message.GetData<UpdateAchievementResponse>();
-        if (response != null && !response.Success)
+        try
         {
-            ErrorOccurred?.Invoke(response.ErrorMessage ?? "Failed to update achievement");
+            var response = message.GetData<UpdateAchievementResponse>();
+            if (response != null)
+            {
+                if (response.Success)
+                {
+                    Console.WriteLine($"[LobbyManager] Achievement updated successfully. IsCompleted: {response.IsCompleted}, Progress: {response.Progress}");
+                }
+                else
+                {
+                    string errorMsg = response.ErrorMessage ?? "Failed to update achievement";
+                    Console.WriteLine($"[LobbyManager] Update achievement failed: {errorMsg}");
+                    ErrorOccurred?.Invoke(errorMsg);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LobbyManager] Error handling UpdateAchievementResponse: {ex.Message}");
+            ErrorOccurred?.Invoke($"更新成就失败: {ex.Message}");
         }
     }
 
     private void HandleAchievementCompleted(NetworkMessage message)
     {
-        var notification = message.GetData<AchievementCompletedNotification>();
-        if (notification != null)
+        try
         {
-            AchievementCompleted?.Invoke(notification);
+            var notification = message.GetData<AchievementCompletedNotification>();
+            if (notification != null)
+            {
+                Console.WriteLine($"[LobbyManager] Achievement completed: {notification.AchievementName} (ID: {notification.AchievementId})");
+                Console.WriteLine($"[LobbyManager] Rewards count: {notification.Rewards?.Count ?? 0}");
+                AchievementCompleted?.Invoke(notification);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LobbyManager] Error handling AchievementCompleted: {ex.Message}");
+            ErrorOccurred?.Invoke($"处理成就完成通知失败: {ex.Message}");
         }
     }
 }

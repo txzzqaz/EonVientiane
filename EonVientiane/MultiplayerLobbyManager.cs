@@ -39,6 +39,7 @@ public class MultiplayerLobbyManager
     public int ServerPort => _serverPort;
     public bool LocalReady => IsLocalPlayerReady();
     public bool IsAuthenticated => _lobbyManager.IsAuthenticated;
+    public string UserId => _lobbyManager.UserId;
     public event Action<InventoryState> InventoryStateReceived;
     public event Action<string> InventoryError;
     public event Action<GameStartedNotification> GameStarted;
@@ -69,6 +70,8 @@ public class MultiplayerLobbyManager
         _lobbyManager.RegisterSuccess += OnRegisterSuccess;
         _lobbyManager.InventoryStateReceived += OnInventoryStateReceived;
         _lobbyManager.InventoryError += OnInventoryError;
+        _lobbyManager.AchievementsReceived += OnAchievementsReceived;
+        _lobbyManager.AchievementCompleted += OnAchievementCompleted;
         
         // 订阅战斗相关事件
         _lobbyManager.BattleStateUpdated += OnBattleStateUpdated;
@@ -408,6 +411,18 @@ public class MultiplayerLobbyManager
         _statusMessage = error;
         InventoryError?.Invoke(error);
     }
+
+    private void OnAchievementsReceived(List<AchievementDto> achievements)
+    {
+        _statusMessage = $"成就已更新: {achievements.Count}个";
+        AchievementsReceived?.Invoke(achievements);
+    }
+
+    private void OnAchievementCompleted(AchievementCompletedNotification notification)
+    {
+        _statusMessage = $"成就完成: {notification.AchievementName}";
+        AchievementCompleted?.Invoke(notification);
+    }
     
     private void OnLoginSuccess()
     {
@@ -464,7 +479,7 @@ public class MultiplayerLobbyManager
     /// <summary>
     /// 发送战斗行动
     /// </summary>
-    public async Task SendBattleActionAsync(string selectedDiceName, string targetPlayerId)
+    public async Task SendBattleActionAsync(string selectedDiceName, string targetPlayerId, int? manualDiceValue = null)
     {
         if (!_networkClient.IsConnected)
         {
@@ -472,13 +487,13 @@ public class MultiplayerLobbyManager
             return;
         }
         
-        await _lobbyManager.SendBattleActionAsync(selectedDiceName, targetPlayerId);
+        await _lobbyManager.SendBattleActionAsync(selectedDiceName, targetPlayerId, manualDiceValue);
     }
     
     /// <summary>
     /// 发送战斗防守
     /// </summary>
-    public async Task SendBattleDefenseAsync(string selectedDiceName)
+    public async Task SendBattleDefenseAsync(string selectedDiceName, int? manualDiceValue = null)
     {
         if (!_networkClient.IsConnected)
         {
@@ -486,7 +501,21 @@ public class MultiplayerLobbyManager
             return;
         }
         
-        await _lobbyManager.SendBattleDefenseAsync(selectedDiceName);
+        await _lobbyManager.SendBattleDefenseAsync(selectedDiceName, manualDiceValue);
+    }
+
+    /// <summary>
+    /// 发送战斗认输
+    /// </summary>
+    public async Task SendBattleSurrenderAsync()
+    {
+        if (!_networkClient.IsConnected)
+        {
+            _statusMessage = "连接已断开";
+            return;
+        }
+
+        await _lobbyManager.SendBattleSurrenderAsync();
     }
     
     private void OnBattleStateUpdated(BattleStateUpdateNotification notification)

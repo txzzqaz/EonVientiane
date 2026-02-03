@@ -121,7 +121,7 @@ private Dice CreateDiceByName(string diceName)
     return diceName switch
     {
         "D6骰子" => new D6Dice(DiceUsageType.Both),
-        "飞羽骰子" => new FeatheredDice(),
+        "飞羽" => new FeatheredDice(),
         _ => null
     };
 }
@@ -154,7 +154,7 @@ foreach (var playerState in state.Players)
     ↓
 服务器发送 BattleStateUpdateNotification
     ├─ CurrentActionPlayerId = "player-123"
-    ├─ AvailableActiveDiceNames = ["D6骰子", "飞羽骰子"]
+    ├─ AvailableActiveDiceNames = ["D6骰子", "飞羽"]
     ├─ Players[] 包含所有玩家及其 EquippedDiceNames
     ↓
 客户端 ApplyServerBattleState()

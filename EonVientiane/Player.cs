@@ -73,6 +73,18 @@ public class Player
     /// </summary>
     public bool IsWaitingForDefense { get; set; }
 
+    /// <summary>
+    /// AD回合的预设行动序列（使用"预见"饰品时）
+    /// Key: 骰子名称, Value: 该骰子的多个计划行动
+    /// </summary>
+    public Dictionary<string, PlannedActionSequence> PlannedActionsAD { get; private set; }
+
+    /// <summary>
+    /// PD回合的预设行动序列（使用"预见"饰品时）
+    /// Key: 骰子名称, Value: 该骰子的多个计划行动
+    /// </summary>
+    public Dictionary<string, PlannedActionSequence> PlannedActionsPD { get; private set; }
+
     // 记录是否曾经受到过伤害（用于判定HP<=0的存活逻辑）
     private bool _hasTakenDamage;
     
@@ -88,6 +100,8 @@ public class Player
         ActiveEffects = new List<GameEffect>();
         HasActedThisRound = false;
         IsWaitingForDefense = false;
+        PlannedActionsAD = new Dictionary<string, PlannedActionSequence>();
+        PlannedActionsPD = new Dictionary<string, PlannedActionSequence>();
         _hasTakenDamage = false;
     }
     
@@ -228,4 +242,70 @@ public class Player
         HasActedThisRound = false;
         IsWaitingForDefense = false;
     }
+
+    /// <summary>
+    /// 为AD回合添加计划行动
+    /// </summary>
+    public void AddPlannedActionAD(string diceName, string targetPlayerId = null, int customValue = 0)
+    {
+        if (!PlannedActionsAD.ContainsKey(diceName))
+        {
+            PlannedActionsAD[diceName] = new PlannedActionSequence(diceName);
+        }
+        PlannedActionsAD[diceName].AddAction(new PlannedAction(diceName, targetPlayerId, customValue));
+    }
+
+    /// <summary>
+    /// 为PD回合添加计划行动
+    /// </summary>
+    public void AddPlannedActionPD(string diceName, string targetPlayerId = null, int customValue = 0)
+    {
+        if (!PlannedActionsPD.ContainsKey(diceName))
+        {
+            PlannedActionsPD[diceName] = new PlannedActionSequence(diceName);
+        }
+        PlannedActionsPD[diceName].AddAction(new PlannedAction(diceName, targetPlayerId, customValue));
+    }
+
+    /// <summary>
+    /// 获取AD回合的下一个计划行动
+    /// </summary>
+    public PlannedAction GetNextPlannedActionAD(string diceName)
+    {
+        if (PlannedActionsAD.ContainsKey(diceName))
+        {
+            return PlannedActionsAD[diceName].GetAndRemoveFirstAction();
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 获取PD回合的下一个计划行动
+    /// </summary>
+    public PlannedAction GetNextPlannedActionPD(string diceName)
+    {
+        if (PlannedActionsPD.ContainsKey(diceName))
+        {
+            return PlannedActionsPD[diceName].GetAndRemoveFirstAction();
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 清空所有计划行动
+    /// </summary>
+    public void ClearAllPlannedActions()
+    {
+        PlannedActionsAD.Clear();
+        PlannedActionsPD.Clear();
+    }
+
+    /// <summary>
+    /// 是否有装备"预见"饰品
+    /// </summary>
+    public bool HasForesightAccessory()
+    {
+        return GetEquippedAccessories().Any(a => a is ForesightAccessory);
+    }
+
 }

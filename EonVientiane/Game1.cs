@@ -31,6 +31,8 @@ public class Game1 : Game
     private MultiplayerLobbyManager _lobbyManager;
     private BattleManager _battleManager;
     private AchievementSystem _achievementSystem;
+    private ItemIconProvider _itemIconProvider;
+    private BattleHistoryManager _battleHistoryManager;
     private bool _isLoggingIn;
     private bool _isRegistering;
     private string _authStatusMessage = string.Empty;
@@ -46,6 +48,10 @@ public class Game1 : Game
     // 背包界面状态
     private int? _selectedInventoryIndex = null;
     private int? _selectedEquipmentIndex = null;
+
+    // 对战历史界面状态
+    private int _battleHistoryScrollOffset = 0;
+    private int? _selectedBattleRecordIndex = null;
 
     // 输入状态
     private MouseState _previousMouseState;
@@ -90,6 +96,7 @@ public class Game1 : Game
         _inventoryInputHandler = new InventoryInputHandler(MenuManager.GetMenuWidth(), OnEquipRequested, OnUnequipRequested);
         _lobbyManager = new MultiplayerLobbyManager();
         _battleManager = new BattleManager(_inventoryManager, MenuManager.GetMenuWidth());
+        _battleHistoryManager = new BattleHistoryManager();
 
         _lobbyManager.InventoryStateReceived += OnInventoryStateReceived;
         _lobbyManager.InventoryError += OnInventoryError;
@@ -97,10 +104,13 @@ public class Game1 : Game
         _lobbyManager.AchievementCompleted += OnServerAchievementCompleted;
         _lobbyManager.BattleStateUpdated += OnBattleStateUpdated;
         _lobbyManager.BattleEnded += OnBattleEnded;
+        _lobbyManager.AchievementsReceived += OnAchievementsReceived;
         
         // 订阅战斗管理器事件
         _battleManager.BattleActionRequested += OnBattleActionRequested;
         _battleManager.BattleDefenseRequested += OnBattleDefenseRequested;
+        _battleManager.BattleSurrenderRequested += OnBattleSurrenderRequested;
+        _battleManager.ReturnToLobbyRequested += OnReturnToLobbyRequested;
         
         // 订阅成就完成事件
         _achievementSystem.AchievementCompleted += OnAchievementCompleted;
@@ -124,12 +134,25 @@ public class Game1 : Game
         _uiManager.SetTexture(_buttonTexture);
         _uiManager.SetFont(_buttonFont);
 
+        // 初始化图标提供器（用于骰子图标）
+        _itemIconProvider = new ItemIconProvider(Content);
+        _uiManager.SetIconProvider(_itemIconProvider);
+        _battleManager.SetIconProvider(_itemIconProvider);
+
         // 初始化菜单
         _menuManager.InitializeButtons(_buttonTexture, _buttonFont);
     }
 
     protected override void Update(GameTime gameTime)
     {
+        if (!IsActive)
+        {
+            _previousMouseState = Mouse.GetState();
+            _inputManager?.ClearInputStates();
+            base.Update(gameTime);
+            return;
+        }
+
         if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed || Keyboard.GetState().IsKeyDown(Keys.Escape))
         {
             if (_currentUIState != GameUIState.Game)
@@ -173,6 +196,8 @@ public class Game1 : Game
         // 处理菜单输入
         var menuResult = _menuManager.HandleInput(mouseState, _previousMouseState);
 
+        bool battleActive = _battleManager?.IsBattleActive == true;
+
         if (menuResult.TopButtonClicked)
         {
             if (_currentUser == null)
@@ -196,20 +221,25 @@ public class Game1 : Game
 
             if (menuResult.ClickedButtonLabel == "战斗")
             {
-                // 本地对电脑战斗已移除，默认跳转背包界面
-                _currentContentView = ContentView.Button2;
+                _currentContentView = ContentView.Battle;
             }
         }
 
         // 处理背包输入
-        if (_currentContentView == ContentView.Button2)
+        if (!battleActive && _currentContentView == ContentView.Button2)
         {
             _inventoryInputHandler.HandleInput(mouseState, _previousMouseState, _inventoryManager,
                 ref _selectedInventoryIndex, ref _selectedEquipmentIndex, _graphics.PreferredBackBufferHeight);
         }
 
+        // 处理对战历史输入
+        if (!battleActive && _currentContentView == ContentView.Button3)
+        {
+            HandleBattleHistoryInput(mouseState, _previousMouseState);
+        }
+
         // 处理联机大厅输入
-        if (_currentContentView == ContentView.Button1)
+        if (!battleActive && _currentContentView == ContentView.Button1)
         {
             if (_currentUser != null)
             {
@@ -220,7 +250,7 @@ public class Game1 : Game
         }
 
         // 处理战斗输入
-        if (_currentContentView == ContentView.Battle && _battleManager != null)
+        if (_currentContentView == ContentView.Battle && battleActive && _battleManager != null)
         {
             int panelWidth = _graphics.PreferredBackBufferWidth - MenuManager.GetMenuWidth();
             int panelHeight = _graphics.PreferredBackBufferHeight;
@@ -288,7 +318,9 @@ public class Game1 : Game
                 _currentUser = new UserProfile(_loginManager.Username, string.Empty, DateTime.UtcNow, "Newbie");
                 _loginManager.SetCurrentUser(_currentUser);
             }
+            _achievementSystem.SetUserId(_lobbyManager.UserId);
             _ = _lobbyManager.RequestInventoryAsync();
+            _ = _lobbyManager.GetAchievementsAsync();
             _currentUIState = GameUIState.UserProfile;
             _activeInputField = InputField.None;
             _isLoggingIn = false;
@@ -473,6 +505,58 @@ public class Game1 : Game
         }
     }
 
+    private void HandleBattleHistoryInput(MouseState mouseState, MouseState previousMouseState)
+    {
+        if (_currentUser == null)
+            return;
+
+        // 获取对战记录列表
+        var records = _battleHistoryManager.GetBattleRecordsByPlayer(_currentUser.Username);
+        
+        int panelX = MenuManager.GetMenuWidth();
+        int panelWidth = _graphics.PreferredBackBufferWidth - MenuManager.GetMenuWidth();
+        int panelHeight = _graphics.PreferredBackBufferHeight;
+        
+        // 记录列表的区域
+        int listX = panelX + 20;
+        int listY = 155; // 标题后的位置
+        int listWidth = panelWidth - 40;
+        const int recordHeight = 50;
+        const int recordSpacing = 5;
+        int maxVisibleRecords = (panelHeight - 195) / (recordHeight + recordSpacing);
+
+        bool leftClicked = mouseState.LeftButton == ButtonState.Pressed && previousMouseState.LeftButton == ButtonState.Released;
+        if (!leftClicked)
+        {
+            // 处理滚轮滚动
+            if (mouseState.ScrollWheelValue != _inputManager.PreviousMouseState.ScrollWheelValue)
+            {
+                int delta = (_inputManager.PreviousMouseState.ScrollWheelValue - mouseState.ScrollWheelValue) / 120;
+                _battleHistoryScrollOffset += delta * 15;
+                
+                int totalHeight = records.Count * (recordHeight + recordSpacing);
+                int maxScroll = Math.Max(0, totalHeight - (panelHeight - 195));
+                _battleHistoryScrollOffset = Math.Clamp(_battleHistoryScrollOffset, 0, maxScroll);
+            }
+            return;
+        }
+
+        Point mousePoint = new Point(mouseState.X, mouseState.Y);
+        Rectangle listAreaRect = new Rectangle(listX, listY, listWidth, panelHeight - 195);
+
+        if (!listAreaRect.Contains(mousePoint))
+            return;
+
+        // 计算点击了哪一条记录
+        int relativeY = mousePoint.Y - listY + _battleHistoryScrollOffset;
+        int clickedIndex = relativeY / (recordHeight + recordSpacing);
+
+        if (clickedIndex >= 0 && clickedIndex < records.Count)
+        {
+            _selectedBattleRecordIndex = clickedIndex;
+        }
+    }
+
     private void ProcessLobbyKeyboardInput()
     {
         if (_currentUIState != GameUIState.Game || _currentContentView != ContentView.Button1)
@@ -552,6 +636,11 @@ public class Game1 : Game
     {
         GraphicsDevice.Clear(Color.CornflowerBlue);
 
+        if (_itemIconProvider != null)
+        {
+            _itemIconProvider.TimeProvider = () => (float)gameTime.TotalGameTime.TotalSeconds;
+        }
+
         _spriteBatch.Begin();
         _menuManager.Draw(_spriteBatch, _buttonTexture, _buttonFont, GraphicsDevice);
         _spriteBatch.End();
@@ -560,7 +649,7 @@ public class Game1 : Game
         if (_currentUIState == GameUIState.Game)
         {
             // 如果是战斗界面，绘制战斗
-            if (_currentContentView == ContentView.Battle && _battleManager != null)
+            if (_currentContentView == ContentView.Battle && _battleManager != null && _battleManager.IsBattleActive)
             {
                 int panelWidth = _graphics.PreferredBackBufferWidth - MenuManager.GetMenuWidth();
                 int panelHeight = _graphics.PreferredBackBufferHeight;
@@ -583,10 +672,20 @@ public class Game1 : Game
                     _selectedRoomId,
                     _activeLobbyInputField);
             }
+            // 对战历史界面
+            else if (_currentContentView == ContentView.Button3)
+            {
+                string playerName = _currentUser?.Username ?? string.Empty;
+                _uiManager.DrawBattleHistoryPanel(_spriteBatch, _battleHistoryManager, playerName, _battleHistoryScrollOffset, _selectedBattleRecordIndex);
+            }
             // 成就界面
             else if (_currentContentView == ContentView.Button4)
             {
                 _uiManager.DrawAchievementPanel(_spriteBatch, _achievementSystem);
+            }
+            // 战斗界面但非战斗中：保持空白
+            else if (_currentContentView == ContentView.Battle)
+            {
             }
             else
             {
@@ -673,7 +772,8 @@ public class Game1 : Game
     private void OnAchievementCompleted(AchievementSystem.Achievement achievement)
     {
         _authStatusMessage = $"成就完成: {achievement.Name}";
-        Console.WriteLine($"[Client] Achievement completed: {achievement.Name}");
+        Console.WriteLine($"[Client] Local achievement completed: {achievement.Name} (ID: {achievement.Id})");
+        Console.WriteLine($"[Client] Rewards count: {achievement.Rewards.Count}");
     }
 
     /// <summary>
@@ -684,15 +784,9 @@ public class Game1 : Game
         if (reward.Type == "Item")
         {
             _authStatusMessage += $" - 获得物品: {reward.ItemId}";
+            Console.WriteLine($"[Client] Reward given: Item {reward.ItemId} x{reward.Quantity}");
         }
-        else if (reward.Type == "Gold")
-        {
-            _authStatusMessage += $" - 获得 {reward.Quantity} 金币";
-        }
-        Console.WriteLine($"[Client] Reward given: {reward.Type} x{reward.Quantity}");
     }
-
-    
 
     /// <summary>
     /// 服务端成就完成通知处理
@@ -700,21 +794,30 @@ public class Game1 : Game
     private void OnServerAchievementCompleted(AchievementCompletedNotification notification)
     {
         _authStatusMessage = $"成就完成: {notification.AchievementName}!";
-        Console.WriteLine($"[Client] Server achievement completed: {notification.AchievementName}");
+        Console.WriteLine($"[Client] Server achievement completed: {notification.AchievementName} (ID: {notification.AchievementId})");
+        Console.WriteLine($"[Client] Completion time: {notification.CompletedTime}");
+        Console.WriteLine($"[Client] Rewards: {notification.Rewards?.Count ?? 0}");
         
         foreach (var reward in notification.Rewards)
         {
             if (reward.Type == "Item")
             {
                 _authStatusMessage += $" 获得: {reward.ItemId}";
-            }
-            else if (reward.Type == "Gold")
-            {
-                _authStatusMessage += $" 获得 {reward.Quantity} 金币";
+                Console.WriteLine($"[Client] Reward: Item {reward.ItemId} x{reward.Quantity}");
             }
         }
         
         _ = _lobbyManager.RequestInventoryAsync();
+    }
+
+    /// <summary>
+    /// 从服务器接收成就数据
+    /// </summary>
+    private void OnAchievementsReceived(List<AchievementDto> achievements)
+    {
+        Console.WriteLine($"[Client] Received {achievements.Count} achievements from server");
+        _achievementSystem.SyncWithServer(achievements);
+        _authStatusMessage = $"成就系统已更新，共{achievements.Count}个成就";
     }
     
     /// <summary>
@@ -737,31 +840,145 @@ public class Game1 : Game
     /// </summary>
     private void OnBattleEnded(BattleEndNotification notification)
     {
-        _authStatusMessage = $"战斗结束！{notification.WinnerCamp}阵营获胜！";
         Console.WriteLine($"[Client] Battle ended - Winner: {notification.WinnerCamp}");
+        
+        // 设置战斗结算数据给BattleManager显示
+        _battleManager.SetBattleEndNotification(notification);
+        
+        // 保存对战记录到本地历史
+        if (_battleManager?.CurrentBattle != null && _currentUser != null)
+        {
+            var battleRecord = new BattleRecord
+            {
+                BattleDateTime = DateTime.Now,
+                LocalPlayerName = _currentUser.Username,
+                IsMultiplayer = true,
+                WinnerName = notification.WinnerCamp,
+                DurationSeconds = (int)notification.BattleDuration.TotalSeconds,
+                TotalRounds = notification.TotalRounds,
+                Notes = $"多人对战 - {DateTime.Now:yyyy-MM-dd HH:mm:ss}"
+            };
+            
+            // 从统计数据中获取详细信息
+            var myStats = notification.PlayerStats?.FirstOrDefault(s => s.PlayerId == _currentUser.Username);
+            if (myStats != null)
+            {
+                battleRecord.TotalDamageDealt = myStats.TotalDamageDealt;
+                battleRecord.TotalDamageTaken = myStats.TotalDamageTaken;
+                battleRecord.TotalDamageBlocked = myStats.TotalDamageBlocked;
+                battleRecord.KillCount = myStats.KillCount;
+                battleRecord.TotalActionTimeSeconds = myStats.TotalActionTime.TotalSeconds;
+                battleRecord.IsMVP = myStats.IsMVP;
+            }
+            
+            // 尝试从当前战斗获取更多信息
+            if (_battleManager.CurrentBattle.AllPlayers.Count > 0)
+            {
+                var localPlayer = _battleManager.CurrentBattle.AllPlayers.FirstOrDefault(p => p.PlayerId == _currentUser.Username);
+                if (localPlayer != null)
+                {
+                    battleRecord.LocalPlayerHp = localPlayer.CurrentHP;
+                    battleRecord.LocalPlayerLevel = 1;
+                }
+                
+                // 获取对手信息（取第一个对手）
+                var opponent = _battleManager.CurrentBattle.AllPlayers.FirstOrDefault(p => p.PlayerId != _currentUser.Username);
+                if (opponent != null)
+                {
+                    battleRecord.OpponentName = opponent.PlayerName;
+                    battleRecord.OpponentHp = opponent.CurrentHP;
+                    battleRecord.OpponentLevel = 1;
+                }
+            }
+            
+            // 从奖励中获取经验值
+            var myReward = notification.PlayerRewards?.FirstOrDefault(r => r.PlayerId == _currentUser.Username);
+            if (myReward != null)
+            {
+                battleRecord.ExpGained = myReward.ExpGained;
+            }
+            
+            // 确定对战结果 (0=失败, 1=胜利, 2=平手)
+            if (myStats != null)
+            {
+                bool isWinner = notification.WinnerCamp.Contains(myStats.TeamId == 1 ? "Team1" : "Team2");
+                battleRecord.Result = isWinner ? 1 : 0;
+            }
+            else if (battleRecord.WinnerName == _currentUser.Username)
+            {
+                battleRecord.Result = 1; // 胜利
+            }
+            else if (string.IsNullOrEmpty(battleRecord.WinnerName))
+            {
+                battleRecord.Result = 2; // 平手
+            }
+            else
+            {
+                battleRecord.Result = 0; // 失败
+            }
+            
+            _battleHistoryManager.AddBattleRecord(battleRecord);
+            Console.WriteLine($"[Client] Battle record saved: {battleRecord.LocalPlayerName} vs {battleRecord.OpponentName}");
+        }
     }
     
     /// <summary>
     /// 处理战斗行动请求（发送到服务器）
     /// </summary>
-    private async void OnBattleActionRequested(string diceName, string targetPlayerId)
+    private async void OnBattleActionRequested(string diceName, string targetPlayerId, int? manualDiceValue)
     {
         if (_lobbyManager != null)
         {
-            await _lobbyManager.SendBattleActionAsync(diceName, targetPlayerId);
-            Console.WriteLine($"[Client] Sent battle action: {diceName} -> {targetPlayerId}");
+            await _lobbyManager.SendBattleActionAsync(diceName, targetPlayerId, manualDiceValue);
+            Console.WriteLine($"[Client] Sent battle action: {diceName} -> {targetPlayerId} (manual:{manualDiceValue})");
         }
     }
     
     /// <summary>
     /// 处理战斗防守请求（发送到服务器）
     /// </summary>
-    private async void OnBattleDefenseRequested(string diceName)
+    private async void OnBattleDefenseRequested(string diceName, int? manualDiceValue)
     {
         if (_lobbyManager != null)
         {
-            await _lobbyManager.SendBattleDefenseAsync(diceName);
-            Console.WriteLine($"[Client] Sent battle defense: {diceName}");
+            await _lobbyManager.SendBattleDefenseAsync(diceName, manualDiceValue);
+            Console.WriteLine($"[Client] Sent battle defense: {diceName} (manual:{manualDiceValue})");
+        }
+    }
+
+    /// <summary>
+    /// 处理战斗认输请求（发送到服务器）
+    /// </summary>
+    private async void OnBattleSurrenderRequested()
+    {
+        if (_lobbyManager != null)
+        {
+            await _lobbyManager.SendBattleSurrenderAsync();
+            Console.WriteLine("[Client] Sent battle surrender request");
+        }
+    }
+
+    /// <summary>
+    /// 处理返回大厅请求
+    /// </summary>
+    private void OnReturnToLobbyRequested()
+    {
+        Console.WriteLine("[Client] Return to lobby requested");
+        
+        // 重置战斗状态
+        _battleManager.InitializeBattle();
+        
+        // 返回大厅视图（Button1是Lobby视图）
+        _currentContentView = ContentView.Button1;
+        
+        // 清空消息
+        _authStatusMessage = string.Empty;
+        
+        // 自动退出房间
+        if (_lobbyManager != null)
+        {
+            _lobbyManager.LeaveRoom();
+            Console.WriteLine("[Client] Left room after battle end");
         }
     }
 }

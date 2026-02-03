@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
+using EonVientiane.Shared;
 
 namespace EonVientiane;
 
@@ -168,9 +170,22 @@ public class AchievementSystemExample
             }
         }
         
-        // 模拟从服务端加载成就
+        // 模拟从服务端加载成就 - 转换为DTO格式
         Console.WriteLine("\n加载服务端成就数据...");
-        achievementSystem.LoadFromServer(achievementData);
+        var achievementDtos = achievementData.Select(a => new AchievementDto
+        {
+            Id = a.Id,
+            Name = "示例成就",
+            Description = "这是一个示例成就",
+            Icon = "achievement_icon",
+            Progress = a.Progress,
+            RequiredProgress = 1,
+            IsCompleted = a.IsCompleted,
+            CompletedTime = a.CompletedTime,
+            Rewards = new()
+        }).ToList();
+        
+        achievementSystem.SyncWithServer(achievementDtos);
         
         var stats = achievementSystem.GetCompletionStats();
         Console.WriteLine($"同步后的成就进度: {stats.completed}/{stats.total}");

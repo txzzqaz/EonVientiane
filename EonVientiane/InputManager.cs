@@ -39,6 +39,20 @@ public class InputManager
     }
 
     /// <summary>
+    /// 清空输入状态（用于窗口失焦）
+    /// </summary>
+    public void ClearInputStates()
+    {
+        PreviousKeyboardState = Keyboard.GetState();
+        PreviousMouseState = Mouse.GetState();
+
+        if (TouchInput != null)
+        {
+            TouchInput.Clear();
+        }
+    }
+
+    /// <summary>
     /// 判断设备是否为触摸设备
     /// </summary>
     public bool IsTouchDevice => _isTouchDevice;

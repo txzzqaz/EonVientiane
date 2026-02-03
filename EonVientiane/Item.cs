@@ -4,6 +4,35 @@ using System.Collections.Generic;
 
 namespace EonVientiane;
 
+/// ═══════════════════════════════════════════════════════════════════════════════
+/// ████████████████████████  道具系统核心定义  ████████████████████████
+/// ═══════════════════════════════════════════════════════════════════════════════
+/// 
+/// 【快速导航】
+/// • 物品基类 (Item): 第50行左右
+/// • 装备基类 (Equipment): 第110行左右
+/// • 骰子基类 (Dice): 第205行左右
+/// • 饰品基类 (Accessory): 第230行左右
+/// 
+/// 【道具创建完整指南】
+/// 📄 详见: docs/ITEM_CREATION_GUIDE.md
+/// 
+/// 【快速创建步骤】
+/// 1. 创建新文件: EonVientiane/Dices/YourDice.cs 或 Accessories/YourAccessory.cs
+/// 2. 继承合适的基类 (Dice 或 Accessory)
+/// 3. 在 InventoryManager.cs 的 ItemFactory.RegisterAllItems() 中注册
+/// 4. 在 ItemInitializer.cs 中添加到 GetAllItems()
+/// 5. 编译 → 测试
+/// 
+/// 【类继承关系】
+/// Item (基类)
+///  ├─ Equipment (装备基类)
+///  │   ├─ Dice (骰子)
+///  │   └─ Accessory (饰品)
+///  └─ 其他物品类型
+/// 
+/// ═══════════════════════════════════════════════════════════════════════════════
+
 /// <summary>
 /// 物品类型枚举
 /// </summary>
@@ -27,6 +56,16 @@ public enum EquipmentType
 }
 
 /// <summary>
+/// 骰子使用类型
+/// </summary>
+public enum DiceUsageType
+{
+    Active,   // 主动骰子 (AD)
+    Passive,  // 被动骰子 (PD)
+    Both      // 主动/被动通用骰子
+}
+
+/// <summary>
 /// 物品基类
 /// </summary>
 public class Item
@@ -37,18 +76,22 @@ public class Item
     public ItemType Type { get; set; }
     public int MaxStackSize { get; set; } = 1;
     public Color DisplayColor { get; set; } = Color.White;
+    public string Creator { get; set; } = "qaz"; // 创作者，默认为qaz
+    public string IconAsset { get; set; } = string.Empty; // 图标资源路径（Content/ 下相对路径）
+    public string IconRendererKey { get; set; } = string.Empty; // 自定义图标渲染器键（用于动画/特效）
     
     /// <summary>
     /// 是否可装备
     /// </summary>
     public virtual bool IsEquippable => false;
     
-    public Item(string id, string name, string description, ItemType type)
+    public Item(string id, string name, string description, ItemType type, string creator = "qaz")
     {
         Id = id;
         Name = name;
         Description = description;
         Type = type;
+        Creator = creator;
     }
     
     /// <summary>
@@ -64,10 +107,12 @@ public class Item
     /// </summary>
     public virtual Item Clone()
     {
-        return new Item(Id, Name, Description, Type)
+        return new Item(Id, Name, Description, Type, Creator)
         {
             MaxStackSize = MaxStackSize,
-            DisplayColor = DisplayColor
+            DisplayColor = DisplayColor,
+            IconAsset = IconAsset,
+            IconRendererKey = IconRendererKey
         };
     }
 }
@@ -86,10 +131,17 @@ public class Equipment : Item
     public int Health { get; set; } = 0;
     public int Mana { get; set; } = 0;
     
+    /// <summary>
+    /// 饰品槽消耗数量（仅对Accessory有效）
+    /// 正数：消耗的槽位数（默认1）
+    /// 负数：提供的额外槽位数（例如-1表示提供1个额外槽位）
+    /// </summary>
+    public int AccessorySlotsCost { get; set; } = 1;
+    
     public override bool IsEquippable => true;
     
-    public Equipment(string id, string name, string description, EquipmentType equipmentType)
-        : base(id, name, description, ItemType.Equipment)
+    public Equipment(string id, string name, string description, EquipmentType equipmentType, string creator = "qaz")
+        : base(id, name, description, ItemType.Equipment, creator)
     {
         EquipmentType = equipmentType;
         MaxStackSize = 1; // 装备不可堆叠
@@ -97,14 +149,17 @@ public class Equipment : Item
     
     public override Item Clone()
     {
-        return new Equipment(Id, Name, Description, EquipmentType)
+        return new Equipment(Id, Name, Description, EquipmentType, Creator)
         {
             Attack = Attack,
             Defense = Defense,
             Speed = Speed,
             Health = Health,
             Mana = Mana,
-            DisplayColor = DisplayColor
+            DisplayColor = DisplayColor,
+            AccessorySlotsCost = AccessorySlotsCost,
+            IconAsset = IconAsset,
+            IconRendererKey = IconRendererKey
         };
     }
     
@@ -165,17 +220,63 @@ public class ItemStack
     }
 }
 
-
 /// <summary>
-/// 骰子使用类型
+/// 支持手动录入点数的骰子
 /// </summary>
-public enum DiceUsageType
+public interface IManualRollDice
 {
-    Active,   // 主动骰子 (AD)
-    Passive,  // 被动骰子 (PD)
-    Both      // 主动/被动通用骰子
+    /// <summary>
+    /// 是否需要手动输入（用于客户端弹窗判断）
+    /// </summary>
+    bool RequiresManualInput { get; }
+
+    /// <summary>
+    /// 设置本次掷骰子使用的手动点数
+    /// </summary>
+    /// <param name="value">手动输入的点数，null表示无效</param>
+    void SetManualRoll(int? value);
 }
 
+/// <summary>
+/// 支持计数器的骰子
+/// </summary>
+public interface ICounterDice
+{
+    /// <summary>
+    /// 计数器数值（允许为负）
+    /// </summary>
+    int Counter { get; set; }
+}
+
+/// ╔════════════════════════════════════════════════════════════════════════╗
+/// ║                    ★ 骰子基类 - 战斗核心系统 ★                        ║
+/// ╠════════════════════════════════════════════════════════════════════════╣
+/// ║ 【创建新骰子的完整流程】                                             ║
+/// ║                                                                        ║
+/// ║ 1️⃣  创建类文件                                                        ║
+/// ║     路径: EonVientiane/Dices/YourDiceName.cs                          ║
+/// ║     继承: public class YourDiceName : Dice                            ║
+/// ║                                                                        ║
+/// ║ 2️⃣  实现三个关键方法                                                  ║
+/// ║     • Roll() - 返回掷骰子结果                                         ║
+/// ║     • ExecuteActiveAction() - 主动攻击逻辑(AD骰)                      ║
+/// ║     • ExecutePassiveAction() - 被动防御逻辑(PD骰)                     ║
+/// ║     • Clone() - 复制物品实例                                          ║
+/// ║                                                                        ║
+/// ║ 3️⃣  注册道具                                                          ║
+/// ║     在 InventoryManager.cs 中找到 RegisterAllItems()                 ║
+/// ║     添加: _registry.RegisterItem("dice_id", () => new YourDiceName()); ║
+/// ║                                                                        ║
+/// ║ 4️⃣  服务器同步                                                        ║
+/// ║     在 ItemInitializer.cs 中：                                        ║
+/// ║     • GetAllItems() - 添加到道具列表                                  ║
+/// ║     • CreateItemFromStackData() - 添加创建逻辑                        ║
+/// ║                                                                        ║
+/// ║ 5️⃣  测试                                                              ║
+/// ║     编译 → 运行 → 验证战斗逻辑                                        ║
+/// ║                                                                        ║
+/// ╚════════════════════════════════════════════════════════════════════════╝
+/// 
 /// <summary>
 /// 骰子基类
 /// </summary>
@@ -183,10 +284,11 @@ public abstract class Dice : Equipment
 {
     public DiceUsageType UsageType { get; set; }
     
-    protected Dice(string id, string name, string description, DiceUsageType usageType)
-        : base(id, name, description, EquipmentType.Dice)
+    protected Dice(string id, string name, string description, DiceUsageType usageType, string creator = "qaz")
+        : base(id, name, description, EquipmentType.Dice, creator)
     {
         UsageType = usageType;
+        IconAsset = $"Icons/Dice/{id}"; // 默认骰子图标路径（若不存在则不显示）
     }
     
     /// <summary>
@@ -233,13 +335,15 @@ public class ActionResult
     public string Message { get; set; }
     public Player Target { get; set; }
     public int AttackPower { get; set; }
+    public bool TriggersDefense { get; set; }
     
-    public ActionResult(bool success, string message, Player target = null, int attackPower = 0)
+    public ActionResult(bool success, string message, Player target = null, int attackPower = 0, bool triggersDefense = true)
     {
         Success = success;
         Message = message;
         Target = target;
         AttackPower = attackPower;
+        TriggersDefense = triggersDefense;
     }
 }
 
@@ -260,171 +364,42 @@ public class DefenseResult
     }
 }
 
-/// <summary>
-/// D6 - 六面骰子
-/// 主动使用时，roll出点数作为ATKP（攻击点数）
-/// 被动使用时，roll出点数获得DEFP（防御点数）
-/// ATKP <= DEFP 则完全防御，不受伤
-/// ATKP > DEFP 则受到 ATKP - DEFP 点伤害
-/// </summary>
-public class D6Dice : Dice
-{
-    private Random _random;
-    
-    public D6Dice(DiceUsageType usageType = DiceUsageType.Both)
-        : base("d6_dice", "D6", "Reroll your destiny.", usageType)
-    {
-        _random = new Random();
-        DisplayColor = Color.White;
-    }
-    
-    public override int Roll()
-    {
-        return _random.Next(1, 7); // 返回1-6
-    }
-    
-    /// <summary>
-    /// 作为主动骰子执行攻击
-    /// </summary>
-    public override ActionResult ExecuteActiveAction(Player attacker, List<Player> defenders)
-    {
-        if (defenders == null || defenders.Count == 0)
-            return new ActionResult(false, "没有可攻击的目标");
-        
-        // 随机选择一个防守者
-        Player target = defenders[new Random().Next(defenders.Count)];
-        int atkp = Roll();
-        
-        return new ActionResult(true, $"D6掷出{atkp}点攻击", target, atkp);
-    }
-    
-    /// <summary>
-    /// 作为被动骰子执行防御
-    /// </summary>
-    public override DefenseResult ExecutePassiveAction(Player defender, int attackDamage)
-    {
-        int defp = Roll();
-        int actualDamage = Math.Max(0, attackDamage - defp);
-        
-        string message = actualDamage == 0 
-            ? $"D6掷出{defp}点完全防御！" 
-            : $"D6掷出{defp}点，仍受到{actualDamage}点伤害";
-        
-        return new DefenseResult(defp, actualDamage, message);
-    }
-    
-    public override Item Clone()
-    {
-        return new D6Dice(UsageType)
-        {
-            Attack = Attack,
-            Defense = Defense,
-            Speed = Speed,
-            Health = Health,
-            Mana = Mana,
-            DisplayColor = DisplayColor
-        };
-    }
-}
-
-/// <summary>
-/// 飞羽骰子 - 被动骰子(PD)
-/// 为一个 (计数器 + ATKP) 面的骰子
-/// roll出点数获得AVOP（闪避点数）
-/// ATKP > AVOP 则闪避成功，不受伤
-/// ATKP <= AVOP 则闪避失败，受到全部ATKP点伤害
-/// 每次使用时计数器临时+1，游戏结束后清空
-/// </summary>
-public class FeatheredDice : Dice
-{
-    private Random _random;
-    public int Counter { get; set; } = 0; // 计数器，游戏结束后清空
-    
-    public FeatheredDice()
-        : base("feathered_dice", "飞羽骰子", "一小步.", DiceUsageType.Passive)
-    {
-        _random = new Random();
-        DisplayColor = Color.LightCyan;
-    }
-    
-    /// <summary>
-    /// 根据当前计数器和攻击点数计算面数并掷骰子
-    /// </summary>
-    /// <param name="atkp">对方的攻击点数</param>
-    /// <returns>闪避点数</returns>
-    public int RollWithATKP(int atkp)
-    {
-        int dicefaces = Counter + (atkp*2);
-        int result = _random.Next(1, dicefaces + 1);
-        
-        // 使用后计数器临时+1
-        Counter++;
-        
-        return result;
-    }
-    
-    public override int Roll()
-    {
-        // 对于基础Roll，仅使用计数器
-        int dicefaces = Counter + 1;
-        return _random.Next(1, dicefaces + 1);
-    }
-    
-    /// <summary>
-    /// 作为被动骰子执行防御（闪避逻辑）
-    /// </summary>
-    public override DefenseResult ExecutePassiveAction(Player defender, int attackDamage)
-    {
-        int avop = RollWithATKP(attackDamage);
-        int actualDamage;
-        string message;
-        
-        if (attackDamage > avop)
-        {
-            // 闪避失败
-            actualDamage = attackDamage;
-            message = $"飞羽骰子掷出{avop}点，闪避失败！受到全部{attackDamage}点伤害";
-        }
-        else
-        {
-            // 闪避成功
-            actualDamage = 0;
-            message = $"飞羽骰子掷出{avop}点，闪避成功！";
-        }
-        
-        return new DefenseResult(avop, actualDamage, message);
-    }
-    
-    /// <summary>
-    /// 清空计数器（游戏结束时调用）
-    /// </summary>
-    public void ResetCounter()
-    {
-        Counter = 0;
-    }
-    
-    public override Item Clone()
-    {
-        return new FeatheredDice()
-        {
-            Counter = Counter,
-            Attack = Attack,
-            Defense = Defense,
-            Speed = Speed,
-            Health = Health,
-            Mana = Mana,
-            DisplayColor = DisplayColor
-        };
-    }
-}
-
+/// ╔════════════════════════════════════════════════════════════════════════╗
+/// ║                    ★ 饰品基类 - 被动增益系统 ★                        ║
+/// ╠════════════════════════════════════════════════════════════════════════╣
+/// ║ 【创建新饰品的完整流程】                                             ║
+/// ║                                                                        ║
+/// ║ 1️⃣  创建类文件                                                        ║
+/// ║     路径: EonVientiane/Accessories/YourAccessoryName.cs               ║
+/// ║     继承: public class YourAccessoryName : Accessory                  ║
+/// ║                                                                        ║
+/// ║ 2️⃣  实现事件回调方法                                                  ║
+/// ║     • OnBattleStart() - 战斗开始时触发                                ║
+/// ║     • OnHit() - 受到攻击时触发                                        ║
+/// ║     • OnVictory() - 获胜时触发                                        ║
+/// ║     • OnDefeat() - 失败时触发                                         ║
+/// ║     • Clone() - 复制物品实例                                          ║
+/// ║                                                                        ║
+/// ║ 3️⃣  设置饰品槽位                                                      ║
+/// ║     AccessorySlotsCost = 1;   // 消耗1个槽位(默认)                    ║
+/// ║     AccessorySlotsCost = -1;  // 提供1个额外槽位                      ║
+/// ║                                                                        ║
+/// ║ 4️⃣  注册和同步（同骰子流程）                                          ║
+/// ║     在 ItemFactory.RegisterAllItems() 中注册                          ║
+/// ║     在 ItemInitializer.cs 中同步                                      ║
+/// ║                                                                        ║
+/// ║ 5️⃣  测试                                                              ║
+/// ║     编译 → 运行 → 验证属性生效                                        ║
+/// ║                                                                        ║
+/// ╚════════════════════════════════════════════════════════════════════════╝
+/// 
 /// <summary>
 /// 饰品基类
 /// </summary>
 public abstract class Accessory : Equipment
 {
-    protected Accessory(string id, string name, string description)
-        : base(id, name, description, EquipmentType.Accessory)
+    protected Accessory(string id, string name, string description, string creator = "qaz")
+        : base(id, name, description, EquipmentType.Accessory, creator)
     {
     }
     
@@ -452,116 +427,5 @@ public class BattleContext
     {
         PlayerHP = 0;
         ShieldLayers = 0;
-    }
-}
-
-/// <summary>
-/// 饰品：自我
-/// 对局开始时提供20HP（生命值）
-/// </summary>
-public class SelfAccessory : Accessory
-{
-    public SelfAccessory()
-        : base("self_accessory", "自我", "这就是你自己")
-    {
-        Health = 20;
-        DisplayColor = Color.LightGreen;
-    }
-    
-    public override void OnBattleStart(BattleContext context)
-    {
-        if (context.CanGainHP)
-        {
-            context.PlayerHP += Health;
-        }
-    }
-    
-    public override Item Clone()
-    {
-        return new SelfAccessory()
-        {
-            Attack = Attack,
-            Defense = Defense,
-            Speed = Speed,
-            Health = Health,
-            Mana = Mana,
-            DisplayColor = DisplayColor
-        };
-    }
-}
-
-/// <summary>
-/// 饰品：飞升之证
-/// 无视所有其他道具提供的HP，强制玩家在对局开始时HP为0并且无法获得任何HP
-/// 携带飞升之证每连续赢得5场胜利，本道具计数器永久+1
-/// 在战斗开始时，获得计数器对应数量的护盾层数
-/// 每层护盾可以抵挡一次没有被闪避/完美防御的攻击
-/// </summary>
-public class AscensionProofAccessory : Accessory
-{
-    public int Counter { get; set; } = 0; // 永久计数器
-    public int ConsecutiveWins { get; set; } = 0; // 连续胜利次数
-    
-    public AscensionProofAccessory()
-        : base("ascension_proof", "飞升之证", "终局？")
-    {
-        Health = 0;
-        DisplayColor = Color.Gold;
-    }
-    
-    public override void OnBattleStart(BattleContext context)
-    {
-        // 强制HP为0且无法获得HP
-        context.PlayerHP = 0;
-        context.CanGainHP = false;
-        
-        // 获得护盾层数等于计数器数量
-        context.ShieldLayers = Counter;
-    }
-    
-    /// <summary>
-    /// 记录胜利，每连续5场胜利增加计数器
-    /// </summary>
-    public void OnWin()
-    {
-        ConsecutiveWins++;
-        if (ConsecutiveWins >= 5)
-        {
-            Counter++;
-            ConsecutiveWins = 0; // 重置连续胜利计数
-        }
-    }
-    
-    /// <summary>
-    /// 失败时重置连续胜利计数
-    /// </summary>
-    public void OnLoss()
-    {
-        ConsecutiveWins = 0;
-    }
-    
-    public override int GetProvidedHP() => 0; // 不提供HP
-    
-    public override Item Clone()
-    {
-        return new AscensionProofAccessory()
-        {
-            Counter = Counter,
-            ConsecutiveWins = ConsecutiveWins,
-            Attack = Attack,
-            Defense = Defense,
-            Speed = Speed,
-            Health = Health,
-            Mana = Mana,
-            DisplayColor = DisplayColor
-        };
-    }
-    
-    /// <summary>
-    /// 获取状态描述
-    /// </summary>
-    public string GetStatusDescription()
-    {
-        return $"计数器: {Counter} | 连续胜利: {ConsecutiveWins}/5";
     }
 }

@@ -41,6 +41,11 @@ public class AchievementManager
         {
             "first_defense",
             "perfect_victory",
+            "long_thinking",
+            "blitz_victory",
+            "where_am_i",
+            "guasha_master",
+            "absolute_luck",
             // "first_victory",
             // "battle_master",
             // "item_collector",
@@ -78,18 +83,24 @@ public class AchievementManager
             {
                 // 如果用户不存在，为其创建默认成就
                 userAchievements = CreateDefaultAchievementsForUser(userId);
+                Console.WriteLine($"[Server] Created default achievements for new user '{userId}'");
             }
 
-            return userAchievements.Achievements.Values.Select(a => new AchievementDto
+            var achievements = userAchievements.Achievements.Values.Select(a => new AchievementDto
             {
                 Id = a.Id,
                 Name = GetAchievementName(a.Id),
                 Description = GetAchievementDescription(a.Id),
+                Icon = GetAchievementIcon(a.Id),
                 Progress = a.Progress,
                 RequiredProgress = GetAchievementRequirement(a.Id),
                 IsCompleted = a.IsCompleted,
-                CompletedTime = a.CompletedTime
+                CompletedTime = a.CompletedTime,
+                Rewards = GetCompletionRewards(a.Id)
             }).ToList();
+            
+            Console.WriteLine($"[Server] Retrieved {achievements.Count} achievements for user '{userId}'");
+            return achievements;
         }
     }
 
@@ -104,20 +115,24 @@ public class AchievementManager
             if (!_userAchievements.TryGetValue(userId, out var userAchievements))
             {
                 userAchievements = CreateDefaultAchievementsForUser(userId);
+                Console.WriteLine($"[Server] Created default achievements for user '{userId}' during update");
             }
 
             if (!userAchievements.Achievements.TryGetValue(achievementId, out var progress))
             {
-                return (false, false, 0, "成就不存在");
+                Console.WriteLine($"[Server] Achievement '{achievementId}' not found for user '{userId}'");
+                return (false, false, 0, $"成就'{achievementId}'不存在");
             }
 
             if (progress.IsCompleted)
             {
+                Console.WriteLine($"[Server] Achievement '{achievementId}' already completed for user '{userId}'");
                 return (true, true, progress.Progress, null);
             }
 
             int requiredProgress = GetAchievementRequirement(achievementId);
-            progress.Progress = Math.Min(progress.Progress + progressDelta, requiredProgress);
+            int previousProgress = progress.Progress;
+            progress.Progress = Math.Max(0, Math.Min(progress.Progress + progressDelta, requiredProgress));
 
             bool isNowCompleted = false;
             if (progress.Progress >= requiredProgress && !progress.IsCompleted)
@@ -125,7 +140,11 @@ public class AchievementManager
                 progress.IsCompleted = true;
                 progress.CompletedTime = DateTime.UtcNow;
                 isNowCompleted = true;
-                Console.WriteLine($"[Server] User '{userId}' completed achievement '{achievementId}'");
+                Console.WriteLine($"[Server] User '{userId}' completed achievement '{achievementId}' ({GetAchievementName(achievementId)})");
+            }
+            else
+            {
+                Console.WriteLine($"[Server] User '{userId}' progressed achievement '{achievementId}' from {previousProgress} to {progress.Progress}/{requiredProgress}");
             }
 
             return (true, isNowCompleted, progress.Progress, null);
@@ -142,6 +161,12 @@ public class AchievementManager
         {
             "first_defense",
             "perfect_victory",
+            "long_thinking",
+            "blitz_victory",
+            "where_am_i",
+            "guasha_master",
+            "miracle",
+            "absolute_luck",
             // "first_victory",
             // "battle_master",
             // "item_collector",
@@ -171,6 +196,12 @@ public class AchievementManager
     {
         "first_defense" => "第一次防御",
         "perfect_victory" => "绝对碾压",
+        "long_thinking" => "长考",
+        "blitz_victory" => "秒了",
+        "where_am_i" => "我在哪？",
+        "guasha_master" => "刮痧",
+        "miracle" => "奇迹",
+        "absolute_luck" => "绝对幸运",
         // "first_victory" => "初露锋芒",
         // "battle_master" => "战斗好手",
         // "item_collector" => "装备收集家",
@@ -186,6 +217,12 @@ public class AchievementManager
     {
         "first_defense" => "这是攻，这是防",
         "perfect_victory" => "这是攻，这是防",
+        "long_thinking" => "一局游戏中敌方的总行动时间达到10分钟",
+        "blitz_victory" => "己方总行动时间在5秒内的情况下胜利",
+        "where_am_i" => "携带饰品'漫游者之心'而一整局都没有触发过增益",
+        "guasha_master" => "一局游戏内连续10回合造成了并且只造成1点伤害",
+        "miracle" => "一局内使用飞羽骰子进行闪避连续成功5次",
+        "absolute_luck" => "连胜6局并期间所有掷出骰子点数均相同",
         // "first_victory" => "赢得第一场战斗",
         // "battle_master" => "赢得10场战斗",
         // "item_collector" => "收集20件装备",
@@ -201,12 +238,39 @@ public class AchievementManager
     {
         "first_defense" => 1,
         "perfect_victory" => 1,
+        "long_thinking" => 600,  // 10分钟 = 600秒
+        "blitz_victory" => 1,    // 完成1次5秒内胜利
+        "where_am_i" => 1,       // 完成1次满足条件的战斗
+        "guasha_master" => 1,    // 完成1次满足条件的战斗
+        "miracle" => 1,          // 完成1次飞羽连续闪避5次成功
+        "absolute_luck" => 6,    // 连续6场满足条件的胜利
         // "first_victory" => 1,
         // "battle_master" => 10,
         // "item_collector" => 20,
         // "no_death_warrior" => 5,
         // "time_traveler" => 10,
         _ => 0
+    };
+
+    /// <summary>
+    /// 获取成就图标
+    /// </summary>
+    private string GetAchievementIcon(string achievementId) => achievementId switch
+    {
+        "first_defense" => "achievement_first_defense",
+        "perfect_victory" => "achievement_perfect_victory",
+        "long_thinking" => "achievement_long_thinking",
+        "blitz_victory" => "achievement_blitz_victory",
+        "where_am_i" => "achievement_where_am_i",
+        "guasha_master" => "achievement_guasha_master",
+        "miracle" => "achievement_miracle",
+        "absolute_luck" => "achievement_absolute_luck",
+        // "first_victory" => "achievement_first_victory",
+        // "battle_master" => "achievement_battle_master",
+        // "item_collector" => "achievement_item_collector",
+        // "no_death_warrior" => "achievement_no_death_warrior",
+        // "time_traveler" => "achievement_time_traveler",
+        _ => "achievement_unknown"
     };
 
     /// <summary>
@@ -223,6 +287,30 @@ public class AchievementManager
             "perfect_victory" => new List<RewardDto>
             {
                 new RewardDto { Type = "Item", ItemId = "ascension_proof", Quantity = 1 }
+            },
+            "long_thinking" => new List<RewardDto>
+            {
+                new RewardDto { Type = "Item", ItemId = "holy_fire", Quantity = 1 }
+            },
+            "blitz_victory" => new List<RewardDto>
+            {
+                new RewardDto { Type = "Item", ItemId = "wanderer_heart", Quantity = 1 }
+            },
+            "where_am_i" => new List<RewardDto>
+            {
+                new RewardDto { Type = "Item", ItemId = "foresight", Quantity = 1 }
+            },
+            "guasha_master" => new List<RewardDto>
+            {
+                new RewardDto { Type = "Item", ItemId = "guasha_parquet", Quantity = 1 }
+            },
+            "miracle" => new List<RewardDto>
+            {
+                new RewardDto { Type = "Item", ItemId = "spring_breeze", Quantity = 1 }
+            },
+            "absolute_luck" => new List<RewardDto>
+            {
+                new RewardDto { Type = "Item", ItemId = "concerted_effort", Quantity = 1 }
             },
             // "first_victory" => new List<RewardDto>
             // {

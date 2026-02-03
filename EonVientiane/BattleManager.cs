@@ -18,6 +18,7 @@ public class BattleManager
     private bool _isBattleLogOpen = false;  // 默认关闭战斗日志
     private Rectangle _battleLogWindowRect;
     private Rectangle _battleLogToggleRect;
+    private Rectangle _surrenderButtonRect;
     
     // 临时提示相关字段
     private string _currentTip = string.Empty;
@@ -30,17 +31,39 @@ public class BattleManager
     private List<(Player player, Rectangle rect)> _opponentRects = new List<(Player player, Rectangle rect)>();
     private Dice _pendingSelectedDice = null;
 
+    // "预见"饰品的双行规划系统
+    private Dictionary<string, int> _plannedDiceSequenceNumbersAD = new Dictionary<string, int>();  // AD行的序号显示
+    private Dictionary<string, int> _plannedDiceSequenceNumbersPD = new Dictionary<string, int>();  // PD行的序号显示
+
+    // 手动输入骰子相关
+    private bool _manualInputOpen = false;
+    private bool _manualInputIsDefense = false;
+    private string _manualInputDiceName = string.Empty;
+    private string _manualInputTargetPlayerId = null;
+    private string _manualInputText = string.Empty;
+    private string _manualInputError = string.Empty;
+    private KeyboardState _previousKeyboardState;
+    private bool _manualInputForPlanning = false;  // 用于规划系统的手动输入
+    private bool _manualInputForPlanningAD = false;  // 是否为AD行的规划输入
+
     private InventoryManager _inventoryManager;
     private int _menuWidth;
+    private ItemIconProvider _iconProvider;
     
     // 多人战斗相关
     private bool _isMultiplayerBattle = false;
     private string _localPlayerId;
     private BattleStateUpdateNotification _currentBattleState;
     
+    // 战斗结算相关
+    private BattleEndNotification _battleEndNotification;
+    private Rectangle _returnToLobbyButtonRect;
+    
     // 多人战斗事件
-    public event Action<string, string> BattleActionRequested; // (diceName, targetPlayerId)
-    public event Action<string> BattleDefenseRequested; // (diceName)
+    public event Action<string, string, int?> BattleActionRequested; // (diceName, targetPlayerId, manualValue)
+    public event Action<string, int?> BattleDefenseRequested; // (diceName, manualValue)
+    public event Action BattleSurrenderRequested;
+    public event Action ReturnToLobbyRequested;
 
     public Battle CurrentBattle => _currentBattle;
     public bool IsBattleActive => _currentBattle != null && !_currentBattle.IsBattleOver;
@@ -50,6 +73,11 @@ public class BattleManager
     {
         _inventoryManager = inventoryManager;
         _menuWidth = menuWidth;
+    }
+
+    public void SetIconProvider(ItemIconProvider iconProvider)
+    {
+        _iconProvider = iconProvider;
     }
 
     /// <summary>
@@ -67,6 +95,7 @@ public class BattleManager
         _opponentRects.Clear();
         _currentTip = string.Empty;
         _tipDurationMs = 0;
+        ClearManualInputState();
     }
 
     /// <summary>
@@ -83,6 +112,7 @@ public class BattleManager
         _opponentRects.Clear();
         _currentTip = string.Empty;
         _tipDurationMs = 0;
+        ClearManualInputState();
         
         _isMultiplayerBattle = true;
         _localPlayerId = localPlayerId;
@@ -126,6 +156,63 @@ public class BattleManager
         _tipDurationMs = durationMs;
     }
 
+    private static bool ShouldSkipTipLog(string log)
+    {
+        if (string.IsNullOrWhiteSpace(log))
+            return true;
+
+        if (log.StartsWith("  "))
+            return true;
+
+        if (log.Contains("等待玩家选择") || log.Contains("点击跳过") || log.Contains("请防守方选择"))
+            return true;
+
+        return false;
+    }
+
+    private static string FindPreviousActionLine(IReadOnlyList<string> logs, int startIndex)
+    {
+        for (int i = startIndex - 1; i >= 0; i--)
+        {
+            var log = logs[i];
+            if (ShouldSkipTipLog(log))
+                continue;
+
+            if ((log.Contains("使用") && log.Contains("发动")) || log.Contains("掷出"))
+                return log;
+        }
+
+        return null;
+    }
+
+    private static string BuildTipFromLogs(IReadOnlyList<string> newLogs)
+    {
+        if (newLogs == null || newLogs.Count == 0)
+            return null;
+
+        for (int i = newLogs.Count - 1; i >= 0; i--)
+        {
+            var log = newLogs[i];
+            if (ShouldSkipTipLog(log))
+                continue;
+
+            if (log.Contains("攻击点数"))
+            {
+                var actionLine = FindPreviousActionLine(newLogs, i);
+                return string.IsNullOrEmpty(actionLine) ? log : $"{actionLine} | {log}";
+            }
+        }
+
+        for (int i = newLogs.Count - 1; i >= 0; i--)
+        {
+            var log = newLogs[i];
+            if (!ShouldSkipTipLog(log))
+                return log;
+        }
+
+        return newLogs[newLogs.Count - 1];
+    }
+
     /// <summary>
     /// 根据骰子名称列表同步玩家装备（用于多人战斗中的其他玩家）
     /// </summary>
@@ -152,17 +239,28 @@ public class BattleManager
         return diceName switch
         {
             "D6骰子" => new D6Dice(DiceUsageType.Both),
-            "飞羽骰子" => new FeatheredDice(),
+            "飞羽" => new FeatheredDice(),
+            "春风" => new SpringBreezeDice(),
+            "刮痧师傅" => new GuaShaParquetDice(),
+            "ERROR" => new ErrorDice(),
             // 可以根据需要添加更多骰子类型
             _ => null
         };
     }
 
     /// <summary>
-    /// 为电脑配置默认装备：D6、飞羽骰子、自我
+    /// 为电脑配置默认装备：D6、飞羽、自我
     /// </summary>
     // 电脑自动操控已移除
     private void SetupComputerEquipment(Player computer) { }
+
+    /// <summary>
+    /// 设置战斗结算数据（从服务器接收）
+    /// </summary>
+    public void SetBattleEndNotification(BattleEndNotification notification)
+    {
+        _battleEndNotification = notification;
+    }
 
     /// <summary>
     /// 更新临时提示的显示时间
@@ -195,12 +293,46 @@ public class BattleManager
     public void HandleInput(MouseState mouseState, MouseState previousMouseState, int panelWidth, int panelHeight)
     {
         int panelX = _menuWidth;
+        var keyboardState = Keyboard.GetState();
+
+        // 战斗已结束，处理结算界面的输入
+        if (_currentBattle != null && _currentBattle.IsBattleOver && _battleEndNotification != null)
+        {
+            if (mouseState.LeftButton == ButtonState.Pressed && previousMouseState.LeftButton == ButtonState.Released)
+            {
+                Point mp = new Point(mouseState.X, mouseState.Y);
+                if (_returnToLobbyButtonRect.Contains(mp))
+                {
+                    ReturnToLobbyRequested?.Invoke();
+                    _battleEndNotification = null;
+                    return;
+                }
+            }
+            _previousKeyboardState = keyboardState;
+            return;
+        }
+
+        if (_manualInputOpen)
+        {
+            HandleManualInput(keyboardState, mouseState, previousMouseState, panelX, panelWidth, panelHeight);
+            _previousKeyboardState = keyboardState;
+            return;
+        }
 
         _battleLogToggleRect = new Rectangle(panelX + panelWidth - 90, 10, 80, 30);
+        _surrenderButtonRect = new Rectangle(panelX + panelWidth - 180, 10, 80, 30);
 
         if (mouseState.LeftButton == ButtonState.Pressed && previousMouseState.LeftButton == ButtonState.Released)
         {
             Point mp = new Point(mouseState.X, mouseState.Y);
+            if (_surrenderButtonRect.Contains(mp))
+            {
+                if (_currentBattle != null && !_currentBattle.IsBattleOver)
+                {
+                    BattleSurrenderRequested?.Invoke();
+                }
+                return;
+            }
             if (_battleLogToggleRect.Contains(mp))
             {
                 _isBattleLogOpen = !_isBattleLogOpen;
@@ -227,10 +359,18 @@ public class BattleManager
             }
         }
 
+        // 如果装备"预见"，处理规划输入
+        if (_currentBattle != null && HasForesightAccessory())
+        {
+            HandleForesightPlanningInput(mouseState, previousMouseState, panelX, panelWidth, panelHeight);
+        }
+
         if (_currentBattle != null && _currentBattle.IsWaitingForPlayerInput)
         {
             HandleBattleActionInput(mouseState, previousMouseState, panelX, panelWidth, panelHeight);
         }
+
+        _previousKeyboardState = keyboardState;
     }
 
     private void HandleBattleActionInput(MouseState mouseState, MouseState previousMouseState, int panelX, int panelWidth, int panelHeight)
@@ -244,14 +384,16 @@ public class BattleManager
         _diceButtonRects.Clear();
         _diceButtons.Clear();
 
+        var displayDice = GetDisplayDiceForCurrentContext();
+        var availableNames = BuildAvailableDiceNameSet(_currentBattle.InputContext);
+
         if (_currentBattle.InputContext == BattleInputContext.AttackSelection)
         {
-            var options = _currentBattle.AvailableActiveDice;
-            for (int i = 0; i < options.Count; i++)
+            for (int i = 0; i < displayDice.Count; i++)
             {
                 var rect = new Rectangle(startX + i * (btnW + spacing), diceAreaY, btnW, btnH);
                 _diceButtonRects.Add(rect);
-                _diceButtons.Add(options[i]);
+                _diceButtons.Add(displayDice[i]);
             }
             _skipActionButtonRect = new Rectangle(panelX + panelWidth - 120, diceAreaY, 100, btnH);
 
@@ -262,7 +404,7 @@ public class BattleManager
                 {
                     _pendingSelectedDice = null;
                     // 仅多人战斗：发送到服务器
-                    BattleActionRequested?.Invoke(null, null);
+                    BattleActionRequested?.Invoke(null, null, null);
                     return;
                 }
 
@@ -271,11 +413,21 @@ public class BattleManager
                     if (_diceButtonRects[i].Contains(mp))
                     {
                         var dice = _diceButtons[i];
+                        if (!IsDiceEnabledForContext(dice, availableNames, BattleInputContext.AttackSelection))
+                            return;
                         var opponents = _currentBattle.AvailableOpponents;
                         if (opponents.Count <= 1)
                         {
-                            // 仅多人战斗：发送到服务器
-                            BattleActionRequested?.Invoke(dice.Name, opponents.FirstOrDefault()?.PlayerId);
+                            var targetId = opponents.FirstOrDefault()?.PlayerId;
+                            if (DiceRequiresManualInput(dice))
+                            {
+                                StartManualInput(dice.Name, targetId, false);
+                            }
+                            else
+                            {
+                                // 仅多人战斗：发送到服务器
+                                BattleActionRequested?.Invoke(dice.Name, targetId, null);
+                            }
                         }
                         else
                         {
@@ -293,12 +445,11 @@ public class BattleManager
         }
         else if (_currentBattle.InputContext == BattleInputContext.DefenseSelection)
         {
-            var options = _currentBattle.AvailablePassiveDice;
-            for (int i = 0; i < options.Count; i++)
+            for (int i = 0; i < displayDice.Count; i++)
             {
                 var rect = new Rectangle(startX + i * (btnW + spacing), diceAreaY, btnW, btnH);
                 _diceButtonRects.Add(rect);
-                _diceButtons.Add(options[i]);
+                _diceButtons.Add(displayDice[i]);
             }
             _skipActionButtonRect = new Rectangle(panelX + panelWidth - 120, diceAreaY, 100, btnH);
 
@@ -308,7 +459,7 @@ public class BattleManager
                 if (_skipActionButtonRect.Contains(mp))
                 {
                     // 仅多人战斗：发送到服务器
-                    BattleDefenseRequested?.Invoke(null);
+                    BattleDefenseRequested?.Invoke(null, null);
                     return;
                 }
                 for (int i = 0; i < _diceButtonRects.Count; i++)
@@ -316,13 +467,86 @@ public class BattleManager
                     if (_diceButtonRects[i].Contains(mp))
                     {
                         var dice = _diceButtons[i];
-                        // 仅多人战斗：发送到服务器
-                        BattleDefenseRequested?.Invoke(dice.Name);
+                        if (!IsDiceEnabledForContext(dice, availableNames, BattleInputContext.DefenseSelection))
+                            return;
+                        if (DiceRequiresManualInput(dice))
+                        {
+                            StartManualInput(dice.Name, null, true);
+                        }
+                        else
+                        {
+                            // 仅多人战斗：发送到服务器
+                            BattleDefenseRequested?.Invoke(dice.Name, null);
+                        }
                         return;
                     }
                 }
             }
         }
+    }
+
+    private Player GetLocalPlayer()
+    {
+        return _currentBattle?.AllPlayers.FirstOrDefault(p => p.PlayerId == _localPlayerId);
+    }
+
+    private List<Dice> GetDisplayDiceForCurrentContext()
+    {
+        if (_currentBattle == null)
+            return new List<Dice>();
+
+        var context = _currentBattle.InputContext;
+        Player owner = null;
+
+        if (context == BattleInputContext.AttackSelection)
+        {
+            owner = _currentBattle.CurrentActionPlayer ?? GetLocalPlayer();
+        }
+        else if (context == BattleInputContext.DefenseSelection)
+        {
+            owner = GetLocalPlayer() ?? _currentBattle.CurrentActionPlayer;
+        }
+
+        return owner?.GetEquippedDice() ?? new List<Dice>();
+    }
+
+    private HashSet<string> BuildAvailableDiceNameSet(BattleInputContext context)
+    {
+        if (_currentBattle == null)
+            return null;
+
+        IReadOnlyList<Dice> options = context switch
+        {
+            BattleInputContext.AttackSelection => _currentBattle.AvailableActiveDice,
+            BattleInputContext.DefenseSelection => _currentBattle.AvailablePassiveDice,
+            _ => null
+        };
+
+        return options == null ? null : new HashSet<string>(options.Select(d => d.Name));
+    }
+
+    private bool IsDiceUsageCompatible(Dice dice, BattleInputContext context)
+    {
+        return context switch
+        {
+            BattleInputContext.AttackSelection => dice.UsageType == DiceUsageType.Active || dice.UsageType == DiceUsageType.Both,
+            BattleInputContext.DefenseSelection => dice.UsageType == DiceUsageType.Passive || dice.UsageType == DiceUsageType.Both,
+            _ => false
+        };
+    }
+
+    private bool IsDiceEnabledForContext(Dice dice, HashSet<string> availableNames, BattleInputContext context)
+    {
+        if (!IsDiceUsageCompatible(dice, context))
+            return false;
+
+        if (availableNames == null)
+            return true;
+
+        if (availableNames.Count == 0)
+            return false;
+
+        return availableNames.Contains(dice.Name);
     }
 
     private void HandleOpponentSelection(MouseState mouseState, MouseState previousMouseState, int panelX, int panelWidth)
@@ -353,14 +577,152 @@ public class BattleManager
             {
                 if (rect.Contains(mp))
                 {
-                    // 仅多人战斗：发送到服务器
-                    BattleActionRequested?.Invoke(_pendingSelectedDice?.Name, player.PlayerId);
+                    if (_pendingSelectedDice != null && DiceRequiresManualInput(_pendingSelectedDice))
+                    {
+                        StartManualInput(_pendingSelectedDice.Name, player.PlayerId, false);
+                    }
+                    else
+                    {
+                        // 仅多人战斗：发送到服务器
+                        BattleActionRequested?.Invoke(_pendingSelectedDice?.Name, player.PlayerId, null);
+                    }
                     _pendingSelectedDice = null;
                     return;
                 }
             }
         }
     }
+
+    private bool DiceRequiresManualInput(Dice dice) => dice is IManualRollDice manualDice && manualDice.RequiresManualInput;
+
+    private void StartManualInput(string diceName, string targetPlayerId, bool isDefense)
+    {
+        _manualInputOpen = true;
+        _manualInputDiceName = diceName;
+        _manualInputTargetPlayerId = targetPlayerId;
+        _manualInputIsDefense = isDefense;
+        _manualInputText = string.Empty;
+        _manualInputError = string.Empty;
+        _pendingSelectedDice = null;
+    }
+
+    private (Rectangle dialogRect, Rectangle inputRect, Rectangle confirmRect, Rectangle cancelRect) GetManualInputLayout(int panelX, int panelWidth, int panelHeight)
+    {
+        int dialogWidth = 360;
+        int dialogHeight = 200;
+        int dialogX = panelX + (panelWidth - dialogWidth) / 2;
+        int dialogY = panelHeight / 2 - dialogHeight / 2;
+
+        var dialogRect = new Rectangle(dialogX, dialogY, dialogWidth, dialogHeight);
+        var inputRect = new Rectangle(dialogX + 20, dialogY + 70, dialogWidth - 40, 38);
+        var confirmRect = new Rectangle(dialogX + 40, dialogY + dialogHeight - 60, 110, 36);
+        var cancelRect = new Rectangle(dialogX + dialogWidth - 40 - 110, dialogY + dialogHeight - 60, 110, 36);
+
+        return (dialogRect, inputRect, confirmRect, cancelRect);
+    }
+
+    private void HandleManualInput(KeyboardState keyboardState, MouseState mouseState, MouseState previousMouseState, int panelX, int panelWidth, int panelHeight)
+    {
+        var layout = GetManualInputLayout(panelX, panelWidth, panelHeight);
+
+        foreach (var key in keyboardState.GetPressedKeys())
+        {
+            if (_previousKeyboardState.IsKeyUp(key))
+            {
+                if (key == Keys.Enter)
+                {
+                    ConfirmManualInput();
+                }
+                else if (key == Keys.Escape)
+                {
+                    CancelManualInput();
+                }
+                else if (key == Keys.Back)
+                {
+                    if (_manualInputText.Length > 0)
+                        _manualInputText = _manualInputText[..^1];
+                }
+                else
+                {
+                    char? c = InputManager.GetCharFromKey(key, keyboardState.IsKeyDown(Keys.LeftShift) || keyboardState.IsKeyDown(Keys.RightShift));
+                    if (c.HasValue && char.IsDigit(c.Value) && _manualInputText.Length < 18)
+                    {
+                        _manualInputText += c.Value;
+                    }
+                }
+            }
+        }
+
+        if (mouseState.LeftButton == ButtonState.Pressed && previousMouseState.LeftButton == ButtonState.Released)
+        {
+            Point mp = new Point(mouseState.X, mouseState.Y);
+            if (layout.confirmRect.Contains(mp))
+            {
+                ConfirmManualInput();
+            }
+            else if (layout.cancelRect.Contains(mp))
+            {
+                CancelManualInput();
+            }
+            else if (layout.inputRect.Contains(mp))
+            {
+                _manualInputError = string.Empty;
+            }
+        }
+    }
+
+    private void ConfirmManualInput()
+    {
+        if (string.IsNullOrWhiteSpace(_manualInputText))
+        {
+            _manualInputError = "请输入点数";
+            return;
+        }
+
+        if (!long.TryParse(_manualInputText, out var parsed))
+        {
+            _manualInputError = "点数必须是数字";
+            return;
+        }
+
+        int manualValue = parsed > int.MaxValue ? int.MaxValue : (int)parsed;
+        manualValue = Math.Max(0, manualValue);
+
+        if (_manualInputForPlanning)
+        {
+            // 规划系统的手动输入确认
+            AddPlannedAction(_manualInputDiceName, _manualInputForPlanningAD, null, manualValue);
+            ShowTip($"已规划{(_manualInputForPlanningAD ? "AD" : "PD")}: {_manualInputDiceName}");
+        }
+        else if (_manualInputIsDefense)
+        {
+            BattleDefenseRequested?.Invoke(_manualInputDiceName, manualValue);
+        }
+        else
+        {
+            BattleActionRequested?.Invoke(_manualInputDiceName, _manualInputTargetPlayerId, manualValue);
+        }
+
+        ClearManualInputState();
+    }
+
+    private void CancelManualInput()
+    {
+        ClearManualInputState();
+    }
+
+    private void ClearManualInputState()
+    {
+        _manualInputOpen = false;
+        _manualInputIsDefense = false;
+        _manualInputDiceName = string.Empty;
+        _manualInputTargetPlayerId = null;
+        _manualInputText = string.Empty;
+        _manualInputError = string.Empty;
+        _manualInputForPlanning = false;
+        _manualInputForPlanningAD = false;
+    }
+
 
     /// <summary>
     /// 绘制战斗面板
@@ -371,6 +733,31 @@ public class BattleManager
             return;
 
         int panelX = _menuWidth;
+
+        // 如果战斗已结束，显示结算界面或等待消息
+        if (_currentBattle.IsBattleOver)
+        {
+            spriteBatch.Begin();
+            
+            if (_battleEndNotification != null)
+            {
+                // 显示结算界面
+                DrawBattleSettlement(spriteBatch, texture, font, panelX, panelWidth, panelHeight);
+            }
+            else
+            {
+                // 等待服务器的战斗结束消息
+                spriteBatch.Draw(texture, new Rectangle(panelX, 0, panelWidth, panelHeight), Color.Black * 0.7f);
+                string waitMsg = "战斗结束，正在加载结算数据...";
+                Vector2 msgSize = font.MeasureString(waitMsg);
+                spriteBatch.DrawString(font, waitMsg, 
+                    new Vector2(panelX + (panelWidth - msgSize.X) / 2, panelHeight / 2 - msgSize.Y / 2), 
+                    Color.Gold);
+            }
+            
+            spriteBatch.End();
+            return;
+        }
 
         spriteBatch.Begin();
 
@@ -395,9 +782,20 @@ public class BattleManager
         string toggleText = _isBattleLogOpen ? "日志 ▾" : "日志 ▸";
         spriteBatch.DrawString(font, toggleText, new Vector2(_battleLogToggleRect.X + 10, _battleLogToggleRect.Y + 5), Color.White);
 
+        _surrenderButtonRect = new Rectangle(panelX + panelWidth - 180, 10, 80, 30);
+        spriteBatch.Draw(texture, _surrenderButtonRect, Color.DarkRed * 0.85f);
+        DrawingHelper.DrawRectangle(spriteBatch, texture, _surrenderButtonRect, Color.White, 2);
+        spriteBatch.DrawString(font, "认输", new Vector2(_surrenderButtonRect.X + 18, _surrenderButtonRect.Y + 5), Color.White);
+
         spriteBatch.End();
 
         DrawBattleLog(spriteBatch, texture, font, graphicsDevice, panelX, panelWidth);
+
+        // 如果装备"预见"，显示双行规划框
+        if (HasForesightAccessory())
+        {
+            DrawForesightPlannedActions(spriteBatch, texture, font, panelX, panelWidth, panelHeight, barW, barH, barTop);
+        }
 
         DrawBattleActions(spriteBatch, texture, font, panelX, panelWidth, panelHeight, barW, barH, barTop);
         
@@ -514,8 +912,8 @@ public class BattleManager
             int diceAreaY = panelHeight - 120;
             spriteBatch.Draw(texture, new Rectangle(panelX + 10, diceAreaY - 10, panelWidth - 20, 70), Color.Black * 0.4f);
             string tip = _currentBattle.InputContext == BattleInputContext.AttackSelection ?
-                (_pendingSelectedDice == null ? "选择一个AD骰子进行攻击，或点击跳过" : "请选择攻击目标") :
-                "选择一个PD骰子进行防御，或点击跳过";
+                (_pendingSelectedDice == null ? "选择一个可用的AD骰子进行攻击（PD会置灰），或点击跳过" : "请选择攻击目标") :
+                "选择一个可用的PD骰子进行防御（AD会置灰），或点击跳过";
             spriteBatch.DrawString(font, tip, new Vector2(panelX + 20, diceAreaY - 30), Color.White);
 
             int btnW = 140;
@@ -526,32 +924,45 @@ public class BattleManager
             _diceButtonRects.Clear();
             _diceButtons.Clear();
 
+            var displayDice = GetDisplayDiceForCurrentContext();
+            var availableNames = BuildAvailableDiceNameSet(_currentBattle.InputContext);
+
             if (_currentBattle.InputContext == BattleInputContext.AttackSelection)
             {
-                var options = _currentBattle.AvailableActiveDice;
-                for (int i = 0; i < options.Count; i++)
+                for (int i = 0; i < displayDice.Count; i++)
                 {
                     var rect = new Rectangle(startX + i * (btnW + spacing), diceAreaY, btnW, btnH);
-                    Color c = Color.DarkSlateGray * 0.9f;
+                    var dice = displayDice[i];
+                    bool enabled = IsDiceEnabledForContext(dice, availableNames, BattleInputContext.AttackSelection);
+                    Color c = enabled ? Color.DarkSlateGray * 0.9f : Color.DimGray * 0.6f;
                     spriteBatch.Draw(texture, rect, c);
-                    DrawingHelper.DrawRectangle(spriteBatch, texture, rect, Color.White, 2);
-                    spriteBatch.DrawString(font, options[i].Name, new Vector2(rect.X + 10, rect.Y + 8), Color.White);
+                    DrawingHelper.DrawRectangle(spriteBatch, texture, rect, enabled ? Color.White : Color.Gray, 2);
+                    int iconSize = 24;
+                    Rectangle iconRect = new Rectangle(rect.X + 6, rect.Y + (rect.Height - iconSize) / 2, iconSize, iconSize);
+                    bool hasIcon = _iconProvider?.TryDrawIcon(spriteBatch, dice, iconRect, enabled ? Color.White : Color.Gray) ?? false;
+                    int textX = rect.X + 10 + (hasIcon ? iconSize + 6 : 0);
+                    spriteBatch.DrawString(font, dice.Name, new Vector2(textX, rect.Y + 8), enabled ? Color.White : Color.Gray);
                     _diceButtonRects.Add(rect);
-                    _diceButtons.Add(options[i]);
+                    _diceButtons.Add(dice);
                 }
             }
             else if (_currentBattle.InputContext == BattleInputContext.DefenseSelection)
             {
-                var options = _currentBattle.AvailablePassiveDice;
-                for (int i = 0; i < options.Count; i++)
+                for (int i = 0; i < displayDice.Count; i++)
                 {
                     var rect = new Rectangle(startX + i * (btnW + spacing), diceAreaY, btnW, btnH);
-                    Color c = Color.DarkSlateGray * 0.9f;
+                    var dice = displayDice[i];
+                    bool enabled = IsDiceEnabledForContext(dice, availableNames, BattleInputContext.DefenseSelection);
+                    Color c = enabled ? Color.DarkSlateGray * 0.9f : Color.DimGray * 0.6f;
                     spriteBatch.Draw(texture, rect, c);
-                    DrawingHelper.DrawRectangle(spriteBatch, texture, rect, Color.White, 2);
-                    spriteBatch.DrawString(font, options[i].Name, new Vector2(rect.X + 10, rect.Y + 8), Color.White);
+                    DrawingHelper.DrawRectangle(spriteBatch, texture, rect, enabled ? Color.White : Color.Gray, 2);
+                    int iconSize = 24;
+                    Rectangle iconRect = new Rectangle(rect.X + 6, rect.Y + (rect.Height - iconSize) / 2, iconSize, iconSize);
+                    bool hasIcon = _iconProvider?.TryDrawIcon(spriteBatch, dice, iconRect, enabled ? Color.White : Color.Gray) ?? false;
+                    int textX = rect.X + 10 + (hasIcon ? iconSize + 6 : 0);
+                    spriteBatch.DrawString(font, dice.Name, new Vector2(textX, rect.Y + 8), enabled ? Color.White : Color.Gray);
                     _diceButtonRects.Add(rect);
-                    _diceButtons.Add(options[i]);
+                    _diceButtons.Add(dice);
                 }
             }
 
@@ -581,14 +992,131 @@ public class BattleManager
             }
         }
 
-        if (_currentBattle.IsBattleOver)
+        if (_manualInputOpen)
         {
-            string over = _currentBattle.WinnerCamp.HasValue ? $"{_currentBattle.WinnerCamp.Value} 获胜" : "战斗结束";
-            Vector2 size = font.MeasureString(over);
-            spriteBatch.DrawString(font, over, new Vector2(panelX + (panelWidth - size.X) / 2, barTop + 80), Color.Gold);
+            DrawManualInputOverlay(spriteBatch, texture, font, panelX, panelWidth, panelHeight);
         }
 
         spriteBatch.End();
+    }
+
+    private void DrawManualInputOverlay(SpriteBatch spriteBatch, Texture2D texture, SpriteFont font, int panelX, int panelWidth, int panelHeight)
+    {
+        var layout = GetManualInputLayout(panelX, panelWidth, panelHeight);
+
+        // 半透明遮罩
+        spriteBatch.Draw(texture, new Rectangle(panelX, 0, panelWidth, panelHeight), Color.Black * 0.35f);
+
+        // 对话框背景
+        spriteBatch.Draw(texture, layout.dialogRect, Color.DimGray * 0.95f);
+        DrawingHelper.DrawRectangle(spriteBatch, texture, layout.dialogRect, Color.Gold, 2);
+
+        string title = $"输入{_manualInputDiceName}点数";
+        string subtitle = _manualInputIsDefense ? "用作防御点数（Enter确认 / Esc取消）" : "用作攻击点数（Enter确认 / Esc取消）";
+
+        spriteBatch.DrawString(font, title, new Vector2(layout.dialogRect.X + 16, layout.dialogRect.Y + 14), Color.White);
+        spriteBatch.DrawString(font, subtitle, new Vector2(layout.dialogRect.X + 16, layout.dialogRect.Y + 40), Color.LightGray, 0f, Vector2.Zero, 0.9f, SpriteEffects.None, 0f);
+
+        // 输入框
+        spriteBatch.Draw(texture, layout.inputRect, Color.Black * 0.7f);
+        DrawingHelper.DrawRectangle(spriteBatch, texture, layout.inputRect, Color.White, 2);
+
+        string inputDisplay = string.IsNullOrEmpty(_manualInputText) ? "请输入数字，支持超大值" : _manualInputText;
+        var inputColor = string.IsNullOrEmpty(_manualInputText) ? Color.Gray : Color.White;
+        spriteBatch.DrawString(font, inputDisplay, new Vector2(layout.inputRect.X + 8, layout.inputRect.Y + 8), inputColor);
+
+        if (!string.IsNullOrEmpty(_manualInputError))
+        {
+            spriteBatch.DrawString(font, _manualInputError, new Vector2(layout.inputRect.X, layout.inputRect.Bottom + 6), Color.IndianRed, 0f, Vector2.Zero, 0.85f, SpriteEffects.None, 0f);
+        }
+
+        // 按钮
+        spriteBatch.Draw(texture, layout.confirmRect, Color.DarkOliveGreen * 0.9f);
+        DrawingHelper.DrawRectangle(spriteBatch, texture, layout.confirmRect, Color.White, 2);
+        spriteBatch.DrawString(font, "确认", new Vector2(layout.confirmRect.X + 26, layout.confirmRect.Y + 8), Color.White);
+
+        spriteBatch.Draw(texture, layout.cancelRect, Color.DarkRed * 0.85f);
+        DrawingHelper.DrawRectangle(spriteBatch, texture, layout.cancelRect, Color.White, 2);
+        spriteBatch.DrawString(font, "取消", new Vector2(layout.cancelRect.X + 26, layout.cancelRect.Y + 8), Color.White);
+    }
+
+    /// <summary>
+    /// 绘制战斗结算界面
+    /// </summary>
+    private void DrawBattleSettlement(SpriteBatch spriteBatch, Texture2D texture, SpriteFont font, int panelX, int panelWidth, int panelHeight)
+    {
+        // 半透明遮罩
+        spriteBatch.Draw(texture, new Rectangle(panelX, 0, panelWidth, panelHeight), Color.Black * 0.7f);
+
+        // 结算窗口
+        int windowWidth = panelWidth - 40;
+        int windowHeight = panelHeight - 80;
+        int windowX = panelX + 20;
+        int windowY = 40;
+        
+        var settleWindow = new Rectangle(windowX, windowY, windowWidth, windowHeight);
+        spriteBatch.Draw(texture, settleWindow, Color.DarkSlateGray * 0.95f);
+        DrawingHelper.DrawRectangle(spriteBatch, texture, settleWindow, Color.Gold, 3);
+
+        // 标题
+        string title = _battleEndNotification.WinnerCamp != null 
+            ? $"{_battleEndNotification.WinnerCamp}阵营获胜!" 
+            : "战斗结束";
+        Vector2 titleSize = font.MeasureString(title);
+        spriteBatch.DrawString(font, title, 
+            new Vector2(windowX + (windowWidth - titleSize.X) / 2, windowY + 20), 
+            Color.Gold);
+
+        // 基础信息
+        int contentX = windowX + 30;
+        int contentY = windowY + 60;
+        int lineHeight = 25;
+        
+        spriteBatch.DrawString(font, $"战斗时长: {_battleEndNotification.BattleDuration.Minutes}分{_battleEndNotification.BattleDuration.Seconds}秒", 
+            new Vector2(contentX, contentY), Color.LightGray);
+        spriteBatch.DrawString(font, $"总回合数: {_battleEndNotification.TotalRounds}", 
+            new Vector2(contentX, contentY + lineHeight), Color.LightGray);
+
+        // 玩家统计
+        contentY += lineHeight * 3;
+        spriteBatch.DrawString(font, "=== 战斗统计 ===", new Vector2(contentX, contentY), Color.Yellow);
+        contentY += lineHeight + 5;
+
+        if (_battleEndNotification.PlayerStats != null && _battleEndNotification.PlayerStats.Count > 0)
+        {
+            int scrollableArea = windowHeight - (contentY - windowY) - 80;
+            int visibleLines = Math.Max(1, scrollableArea / lineHeight);
+            
+            for (int i = 0; i < Math.Min(visibleLines, _battleEndNotification.PlayerStats.Count); i++)
+            {
+                var stat = _battleEndNotification.PlayerStats[i];
+                string mvpTag = stat.IsMVP ? " 🏆MVP🏆" : "";
+                string playerInfo = $"{stat.PlayerName}{mvpTag}: 伤害{stat.TotalDamageDealt} | 承受{stat.TotalDamageTaken} | 格挡{stat.TotalDamageBlocked} | 击杀{stat.KillCount}";
+                
+                Color textColor = stat.IsMVP ? Color.Gold : Color.White;
+                spriteBatch.DrawString(font, playerInfo, new Vector2(contentX, contentY), textColor, 0f, Vector2.Zero, 0.9f, SpriteEffects.None, 0f);
+                contentY += lineHeight;
+            }
+        }
+
+        // 返回大厅按钮
+        int btnWidth = 120;
+        int btnHeight = 40;
+        _returnToLobbyButtonRect = new Rectangle(
+            windowX + (windowWidth - btnWidth) / 2, 
+            windowY + windowHeight - 50, 
+            btnWidth, 
+            btnHeight
+        );
+        
+        spriteBatch.Draw(texture, _returnToLobbyButtonRect, Color.DarkGreen * 0.85f);
+        DrawingHelper.DrawRectangle(spriteBatch, texture, _returnToLobbyButtonRect, Color.White, 2);
+        
+        Vector2 btnTextSize = font.MeasureString("返回大厅");
+        spriteBatch.DrawString(font, "返回大厅", 
+            new Vector2(_returnToLobbyButtonRect.X + (btnWidth - btnTextSize.X) / 2, 
+                       _returnToLobbyButtonRect.Y + (btnHeight - btnTextSize.Y) / 2), 
+            Color.White);
     }
     
     /// <summary>
@@ -631,8 +1159,11 @@ public class BattleManager
             // 显示最后一条战斗日志作为临时提示
             if (state.NewBattleLogs.Count > 0)
             {
-                string lastLog = state.NewBattleLogs[state.NewBattleLogs.Count - 1];
-                ShowTip(lastLog, 2500);  // 显示2.5秒
+                string tipLog = BuildTipFromLogs(state.NewBattleLogs);
+                if (!string.IsNullOrEmpty(tipLog))
+                {
+                    ShowTip(tipLog, 2500);  // 显示2.5秒
+                }
             }
         }
         
@@ -683,6 +1214,12 @@ public class BattleManager
         {
             // 本地玩家需要输入
             _currentBattle.IsWaitingForPlayerInput = true;
+            
+            // 尝试自动执行预设的行动（用于"预见"饰品）
+            if (TryExecutePlannedAction(state.InputContext))
+            {
+                return;  // 已自动执行，无需等待玩家输入
+            }
             
             if (state.InputContext == "AttackSelection")
             {
@@ -804,5 +1341,292 @@ public class BattleManager
         _isMultiplayerBattle = false;
         _localPlayerId = null;
         _currentBattleState = null;
+        _plannedDiceSequenceNumbersAD.Clear();
+        _plannedDiceSequenceNumbersPD.Clear();
+    }
+
+    /// <summary>
+    /// 处理"预见"饰品的规划输入
+    /// </summary>
+    private void HandleForesightPlanningInput(MouseState mouseState, MouseState previousMouseState, int panelX, int panelWidth, int panelHeight)
+    {
+        if (mouseState.LeftButton != ButtonState.Pressed || previousMouseState.LeftButton == ButtonState.Pressed)
+            return;
+
+        int btnW = 140;
+        int btnH = 40;
+        int spacing = 10;
+        int startX = panelX + 20;
+
+        var localPlayer = GetLocalPlayer();
+        if (localPlayer == null)
+            return;
+
+        var displayDice = localPlayer.GetEquippedDice();
+        Point mp = new Point(mouseState.X, mouseState.Y);
+
+        // AD规划框处理
+        int adDiceAreaY = panelHeight - 200;
+        for (int i = 0; i < displayDice.Count; i++)
+        {
+            var rect = new Rectangle(startX + i * (btnW + spacing), adDiceAreaY, btnW, btnH);
+            if (rect.Contains(mp))
+            {
+                var dice = displayDice[i];
+                var opponents = _currentBattle.AvailableOpponents;
+
+                if (DiceRequiresManualInput(dice))
+                {
+                    _manualInputOpen = true;
+                    _manualInputForPlanning = true;
+                    _manualInputForPlanningAD = true;
+                    _manualInputDiceName = dice.Name;
+                    _manualInputIsDefense = false;
+                    _manualInputTargetPlayerId = null;
+                    _manualInputText = string.Empty;
+                }
+                else if (opponents.Count <= 1)
+                {
+                    var targetId = opponents.FirstOrDefault()?.PlayerId;
+                    AddPlannedAction(dice.Name, true, targetId, 0);
+                    ShowTip($"已规划AD: {dice.Name}");
+                }
+                else
+                {
+                    // 需要选择目标 - 这里需要额外的逻辑
+                    ShowTip($"需要选择目标进行AD规划");
+                }
+                return;
+            }
+        }
+
+        // PD规划框处理
+        int pdDiceAreaY = panelHeight - 120;
+        for (int i = 0; i < displayDice.Count; i++)
+        {
+            var rect = new Rectangle(startX + i * (btnW + spacing), pdDiceAreaY, btnW, btnH);
+            if (rect.Contains(mp))
+            {
+                var dice = displayDice[i];
+
+                if (DiceRequiresManualInput(dice))
+                {
+                    _manualInputOpen = true;
+                    _manualInputForPlanning = true;
+                    _manualInputForPlanningAD = false;
+                    _manualInputDiceName = dice.Name;
+                    _manualInputIsDefense = true;
+                    _manualInputTargetPlayerId = null;
+                    _manualInputText = string.Empty;
+                }
+                else
+                {
+                    AddPlannedAction(dice.Name, false, null, 0);
+                    ShowTip($"已规划PD: {dice.Name}");
+                }
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 检查本地玩家是否装备"预见"饰品
+    /// </summary>
+    private bool HasForesightAccessory()
+    {
+        var localPlayer = GetLocalPlayer();
+        return localPlayer?.HasForesightAccessory() ?? false;
+    }
+
+    /// <summary>
+    /// 尝试自动执行预设的行动（预见饰品功能）
+    /// 返回true表示成功执行了预设行动
+    /// </summary>
+    private bool TryExecutePlannedAction(string inputContext)
+    {
+        var localPlayer = GetLocalPlayer();
+        if (localPlayer == null || !localPlayer.HasForesightAccessory())
+            return false;
+
+        Dictionary<string, PlannedActionSequence> plannedActions = null;
+
+        if (inputContext == "AttackSelection")
+        {
+            plannedActions = localPlayer.PlannedActionsAD;
+        }
+        else if (inputContext == "DefenseSelection")
+        {
+            plannedActions = localPlayer.PlannedActionsPD;
+        }
+
+        if (plannedActions == null || plannedActions.Count == 0)
+            return false;
+
+        // 查找第一个有待执行行动的骰子
+        foreach (var kvp in plannedActions)
+        {
+            var sequence = kvp.Value;
+            if (sequence.HasPendingActions)
+            {
+                var action = sequence.GetAndRemoveFirstAction();
+                if (action != null)
+                {
+                    ExecutePlannedAction(action, inputContext);
+                    UpdatePlannedActionSequenceNumbers();
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 执行一个预设的行动
+    /// </summary>
+    private void ExecutePlannedAction(PlannedAction action, string inputContext)
+    {
+        if (action == null)
+            return;
+
+        if (inputContext == "AttackSelection")
+        {
+            // 执行AD行动
+            BattleActionRequested?.Invoke(action.DiceName, action.TargetPlayerId, action.CustomValue > 0 ? action.CustomValue : (int?)null);
+            ShowTip($"自动执行AD预设: {action.DiceName}");
+        }
+        else if (inputContext == "DefenseSelection")
+        {
+            // 执行PD行动
+            BattleDefenseRequested?.Invoke(action.DiceName, action.CustomValue > 0 ? action.CustomValue : (int?)null);
+            ShowTip($"自动执行PD预设: {action.DiceName}");
+        }
+    }
+
+    /// <summary>
+    /// 更新规划行动的序号显示
+    /// </summary>
+    private void UpdatePlannedActionSequenceNumbers()
+    {
+        _plannedDiceSequenceNumbersAD.Clear();
+        _plannedDiceSequenceNumbersPD.Clear();
+
+        var localPlayer = GetLocalPlayer();
+        if (localPlayer == null)
+            return;
+
+        foreach (var kvp in localPlayer.PlannedActionsAD)
+        {
+            _plannedDiceSequenceNumbersAD[kvp.Key] = kvp.Value.Actions.Count;
+        }
+
+        foreach (var kvp in localPlayer.PlannedActionsPD)
+        {
+            _plannedDiceSequenceNumbersPD[kvp.Key] = kvp.Value.Actions.Count;
+        }
+    }
+
+    /// <summary>
+    /// 为规划系统添加一个计划行动
+    /// </summary>
+    private void AddPlannedAction(string diceName, bool isAD, string targetPlayerId = null, int customValue = 0)
+    {
+        var localPlayer = GetLocalPlayer();
+        if (localPlayer == null)
+            return;
+
+        if (isAD)
+        {
+            localPlayer.AddPlannedActionAD(diceName, targetPlayerId, customValue);
+        }
+        else
+        {
+            localPlayer.AddPlannedActionPD(diceName, targetPlayerId, customValue);
+        }
+
+        UpdatePlannedActionSequenceNumbers();
+    }
+
+    /// <summary>
+    /// 绘制"预见"饰品的双行骰子规划框
+    /// </summary>
+    private void DrawForesightPlannedActions(SpriteBatch spriteBatch, Texture2D texture, SpriteFont font, int panelX, int panelWidth, int panelHeight, int barW, int barH, int barTop)
+    {
+        spriteBatch.Begin();
+
+        int btnW = 140;
+        int btnH = 40;
+        int spacing = 10;
+        int startX = panelX + 20;
+
+        var localPlayer = GetLocalPlayer();
+        if (localPlayer == null)
+        {
+            spriteBatch.End();
+            return;
+        }
+
+        var displayDice = localPlayer.GetEquippedDice();
+        
+        // AD回合规划框（上行）
+        int adDiceAreaY = panelHeight - 200;
+        spriteBatch.Draw(texture, new Rectangle(panelX + 10, adDiceAreaY - 10, panelWidth - 20, 70), Color.DarkBlue * 0.4f);
+        spriteBatch.DrawString(font, "AD规划（提前规划攻击防守）", new Vector2(panelX + 20, adDiceAreaY - 30), Color.Cyan);
+
+        for (int i = 0; i < displayDice.Count; i++)
+        {
+            var rect = new Rectangle(startX + i * (btnW + spacing), adDiceAreaY, btnW, btnH);
+            var dice = displayDice[i];
+            Color c = Color.DarkSlateGray * 0.7f;
+            spriteBatch.Draw(texture, rect, c);
+            DrawingHelper.DrawRectangle(spriteBatch, texture, rect, Color.Cyan, 2);
+
+            // 绘制骰子图标
+            int iconSize = 24;
+            Rectangle iconRect = new Rectangle(rect.X + 6, rect.Y + (rect.Height - iconSize) / 2, iconSize, iconSize);
+            bool hasIcon = _iconProvider?.TryDrawIcon(spriteBatch, dice, iconRect, Color.White) ?? false;
+            int textX = rect.X + 10 + (hasIcon ? iconSize + 6 : 0);
+            spriteBatch.DrawString(font, dice.Name, new Vector2(textX, rect.Y + 8), Color.White);
+
+            // 绘制序号
+            if (_plannedDiceSequenceNumbersAD.ContainsKey(dice.Name) && _plannedDiceSequenceNumbersAD[dice.Name] > 0)
+            {
+                string sequenceText = "①②③④⑤⑥⑦⑧⑨⑩".Substring(0, Math.Min(_plannedDiceSequenceNumbersAD[dice.Name], 10));
+                Vector2 seqSize = font.MeasureString(sequenceText);
+                spriteBatch.DrawString(font, sequenceText, new Vector2(rect.Right - seqSize.X - 5, rect.Y + 5), Color.Yellow, 0f, Vector2.Zero, 0.8f, SpriteEffects.None, 0f);
+            }
+        }
+
+        // PD回合规划框（下行）
+        int pdDiceAreaY = panelHeight - 120;
+        spriteBatch.Draw(texture, new Rectangle(panelX + 10, pdDiceAreaY - 10, panelWidth - 20, 70), Color.DarkGreen * 0.4f);
+        spriteBatch.DrawString(font, "PD规划（提前规划防守响应）", new Vector2(panelX + 20, pdDiceAreaY - 30), Color.LimeGreen);
+
+        for (int i = 0; i < displayDice.Count; i++)
+        {
+            var rect = new Rectangle(startX + i * (btnW + spacing), pdDiceAreaY, btnW, btnH);
+            var dice = displayDice[i];
+            Color c = Color.DarkSlateGray * 0.7f;
+            spriteBatch.Draw(texture, rect, c);
+            DrawingHelper.DrawRectangle(spriteBatch, texture, rect, Color.LimeGreen, 2);
+
+            // 绘制骰子图标
+            int iconSize = 24;
+            Rectangle iconRect = new Rectangle(rect.X + 6, rect.Y + (rect.Height - iconSize) / 2, iconSize, iconSize);
+            bool hasIcon = _iconProvider?.TryDrawIcon(spriteBatch, dice, iconRect, Color.White) ?? false;
+            int textX = rect.X + 10 + (hasIcon ? iconSize + 6 : 0);
+            spriteBatch.DrawString(font, dice.Name, new Vector2(textX, rect.Y + 8), Color.White);
+
+            // 绘制序号
+            if (_plannedDiceSequenceNumbersPD.ContainsKey(dice.Name) && _plannedDiceSequenceNumbersPD[dice.Name] > 0)
+            {
+                string sequenceText = "①②③④⑤⑥⑦⑧⑨⑩".Substring(0, Math.Min(_plannedDiceSequenceNumbersPD[dice.Name], 10));
+                Vector2 seqSize = font.MeasureString(sequenceText);
+                spriteBatch.DrawString(font, sequenceText, new Vector2(rect.Right - seqSize.X - 5, rect.Y + 5), Color.Yellow, 0f, Vector2.Zero, 0.8f, SpriteEffects.None, 0f);
+            }
+        }
+
+        spriteBatch.End();
     }
 }
+
