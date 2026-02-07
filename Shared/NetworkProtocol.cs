@@ -76,6 +76,18 @@ public enum MessageType
     // 聊天
     ChatMessage,
     
+    // 本地网络相关（P2P和局域网）
+    LocalGameCreate,
+    LocalGameCreateResponse,
+    LocalGameJoin,
+    LocalGameJoinResponse,
+    LocalGameStart,
+    LocalGameState,
+    LocalGameAction,
+    LocalGameEnd,
+    LocalOfflineLogin,
+    LocalOfflineLoginResponse,
+    
     // 错误
     Error
 }
@@ -590,4 +602,69 @@ public class BattleEndNotification
     public int TotalRounds { get; set; }         // 总回合数
     public List<PlayerBattleStats> PlayerStats { get; set; } = new(); // 玩家战斗统计
     public List<BattleReward> PlayerRewards { get; set; } = new(); // 玩家奖励
+}
+
+/// <summary>
+/// 本地游戏信息 - 用于局域网对战
+/// </summary>
+public class LocalGameInfo
+{
+    public string GameId { get; set; } = string.Empty;
+    public string GameName { get; set; } = string.Empty;
+    public string HostUsername { get; set; } = string.Empty;
+    public int MaxPlayers { get; set; } = 2;
+    public int CurrentPlayers { get; set; } = 1;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public List<LocalGamePlayer> Players { get; set; } = new();
+}
+
+/// <summary>
+/// 本地游戏玩家信息
+/// </summary>
+public class LocalGamePlayer
+{
+    public string PlayerId { get; set; } = string.Empty;
+    public string PlayerName { get; set; } = string.Empty;
+    public bool IsHost { get; set; }
+    public bool IsReady { get; set; }
+    public int TeamId { get; set; }
+}
+
+/// <summary>
+/// 本地离线登录请求
+/// </summary>
+public class LocalOfflineLoginRequest
+{
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 本地离线登录响应
+/// </summary>
+public class LocalOfflineLoginResponse
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string UserId { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 局域网游戏创建请求
+/// </summary>
+public class LocalGameCreateRequest
+{
+    public string GameName { get; set; } = string.Empty;
+    public string HostUsername { get; set; } = string.Empty;
+    public int MaxPlayers { get; set; } = 2;
+}
+
+/// <summary>
+/// 局域网游戏加入请求
+/// </summary>
+public class LocalGameJoinRequest
+{
+    public string GameId { get; set; } = string.Empty;
+    public string PlayerName { get; set; } = string.Empty;
 }

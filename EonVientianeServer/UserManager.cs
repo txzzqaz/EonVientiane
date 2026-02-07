@@ -18,7 +18,6 @@ public class UserManager
         public string PasswordHash { get; set; } = string.Empty;
         public string PasswordSalt { get; set; } = string.Empty;
         public DateTime CreatedTime { get; set; }
-        public bool IsTestAccount { get; set; } = false;  // 标记是否为测试账号
     }
     
     private readonly Dictionary<string, UserAccount> _users = new();
@@ -41,11 +40,7 @@ public class UserManager
             CreateUserInternal("user", "user", "user@example.com");
             CreateUserInternal("test", "test", "test@example.com");
             
-            // 创建常驻测试账号
-            CreateTestAccountInternal("qaz1", "qaz1", "qaz1@test.com");
-            CreateTestAccountInternal("qaz2", "qaz2", "qaz2@test.com");
-            
-            Console.WriteLine("[Server] Test accounts initialized: qaz1, qaz2");
+            Console.WriteLine("[Server] Test accounts initialized");
         }
     }
     
@@ -156,24 +151,6 @@ public class UserManager
     }
     
     /// <summary>
-    /// 检查是否为测试账号
-    /// </summary>
-    public bool IsTestAccount(string userId)
-    {
-        lock (_lock)
-        {
-            foreach (var user in _users.Values)
-            {
-                if (user.UserId == userId)
-                {
-                    return user.IsTestAccount;
-                }
-            }
-        }
-        return false;
-    }
-    
-    /// <summary>
     /// 登出用户
     /// </summary>
     public void Logout(string token)
@@ -197,29 +174,7 @@ public class UserManager
             Email = email,
             PasswordHash = hash,
             PasswordSalt = salt,
-            CreatedTime = DateTime.UtcNow,
-            IsTestAccount = false
-        };
-        
-        _users[username] = user;
-        return user;
-    }
-    
-    /// <summary>
-    /// 内部创建测试账号
-    /// </summary>
-    private UserAccount CreateTestAccountInternal(string username, string password, string email)
-    {
-        var (hash, salt) = HashPassword(password);
-        var user = new UserAccount
-        {
-            UserId = Guid.NewGuid().ToString(),
-            Username = username,
-            Email = email,
-            PasswordHash = hash,
-            PasswordSalt = salt,
-            CreatedTime = DateTime.UtcNow,
-            IsTestAccount = true  // 标记为测试账号
+            CreatedTime = DateTime.UtcNow
         };
         
         _users[username] = user;

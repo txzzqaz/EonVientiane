@@ -33,6 +33,11 @@ public class Game1 : Game
     private AchievementSystem _achievementSystem;
     private ItemIconProvider _itemIconProvider;
     private BattleHistoryManager _battleHistoryManager;
+    private PVEChallengeManager _pveChallengeManager;
+
+    // PVE 界面状态
+    private int _pveScrollOffset = 0;
+    private int? _selectedChallengeIndex = null;
     private bool _isLoggingIn;
     private bool _isRegistering;
     private string _authStatusMessage = string.Empty;
@@ -105,6 +110,7 @@ public class Game1 : Game
         _lobbyManager = new MultiplayerLobbyManager();
         _battleManager = new BattleManager(_inventoryManager, MenuManager.GetMenuWidth());
         _battleHistoryManager = new BattleHistoryManager();
+        _pveChallengeManager = new PVEChallengeManager();
 
         _lobbyManager.InventoryStateReceived += OnInventoryStateReceived;
         _lobbyManager.InventoryError += OnInventoryError;
@@ -228,17 +234,28 @@ public class Game1 : Game
 
         if (menuResult.MiddleButtonClicked)
         {
-            if (menuResult.ClickedButtonLabel == "战斗")
+            switch (menuResult.ClickedButtonLabel)
             {
-                _currentContentView = ContentView.Battle;
-            }
-            else if (menuResult.ClickedButtonLabel == "图鉴")
-            {
-                _currentContentView = ContentView.Button5;
-            }
-            else
-            {
-                _currentContentView = (ContentView)(menuResult.ClickedButtonIndex + 1);
+                case "战斗":
+                    _currentContentView = ContentView.Battle;
+                    break;
+                case "图鉴":
+                    _currentContentView = ContentView.Button5;
+                    break;
+                case "挑战":
+                    _currentContentView = ContentView.Button6;
+                    _pveScrollOffset = 0;
+                    _selectedChallengeIndex = null;
+                    break;
+                case "联机大厅":
+                    _currentContentView = ContentView.Button1;
+                    break;
+                case "背包":
+                    _currentContentView = ContentView.Button2;
+                    break;
+                case "对战历史":
+                    _currentContentView = ContentView.Button3;
+                    break;
             }
         }
 
@@ -265,6 +282,12 @@ public class Game1 : Game
         if (!battleActive && _currentContentView == ContentView.Button5)
         {
             HandleHandbookInput(mouseState, _previousMouseState);
+        }
+
+        // 处理 PVE 挑战输入
+        if (!battleActive && _currentContentView == ContentView.Button6)
+        {
+            HandlePVEChallengeInput(mouseState, _previousMouseState);
         }
 
         // 处理联机大厅输入
@@ -696,6 +719,76 @@ public class Game1 : Game
         }
     }
 
+    private void HandlePVEChallengeInput(MouseState mouseState, MouseState previousMouseState)
+    {
+        if (_currentUIState != GameUIState.Game || _currentContentView != ContentView.Button6)
+            return;
+
+        var challenges = _pveChallengeManager.GetAllChallenges();
+        
+        int panelX = MenuManager.GetMenuWidth();
+        int panelWidth = _graphics.PreferredBackBufferWidth - MenuManager.GetMenuWidth();
+        int panelHeight = _graphics.PreferredBackBufferHeight;
+        
+        // 挑战列表的区域
+        int challengeStartY = 70;
+        const int challengeHeight = 80;
+        const int challengeSpacing = 10;
+        int listX = panelX + 20;
+        int listWidth = panelWidth - 40;
+        int listHeight = panelHeight - challengeStartY - 30;
+
+        bool leftClicked = mouseState.LeftButton == ButtonState.Pressed && previousMouseState.LeftButton == ButtonState.Released;
+        if (!leftClicked)
+        {
+            // 处理滚轮滚动
+            if (mouseState.ScrollWheelValue != _inputManager.PreviousMouseState.ScrollWheelValue)
+            {
+                int delta = (_inputManager.PreviousMouseState.ScrollWheelValue - mouseState.ScrollWheelValue) / 120;
+                _pveScrollOffset += delta * 15;
+                
+                int totalHeight = challenges.Count * (challengeHeight + challengeSpacing);
+                int maxScroll = Math.Max(0, totalHeight - listHeight);
+                _pveScrollOffset = Math.Clamp(_pveScrollOffset, 0, maxScroll);
+            }
+            return;
+        }
+
+        Point mousePoint = new Point(mouseState.X, mouseState.Y);
+        Rectangle listAreaRect = new Rectangle(listX, challengeStartY, listWidth, listHeight);
+
+        if (!listAreaRect.Contains(mousePoint))
+            return;
+
+        // 计算点击了哪个挑战
+        int relativeY = mousePoint.Y - challengeStartY + _pveScrollOffset;
+        int clickedIndex = relativeY / (challengeHeight + challengeSpacing);
+
+        if (clickedIndex >= 0 && clickedIndex < challenges.Count)
+        {
+            _selectedChallengeIndex = clickedIndex;
+            
+            // 如果点击的位置有"战斗"按钮，可以启动战斗
+            // 为了简化，我们直接在 double click 时启动战斗
+            if (mouseState.LeftButton == ButtonState.Pressed && previousMouseState.LeftButton == ButtonState.Pressed)
+            {
+                // Double click - start battle
+                StartPVEBattle(_selectedChallengeIndex.Value);
+            }
+        }
+    }
+
+    private void StartPVEBattle(int challengeIndex)
+    {
+        var challenges = _pveChallengeManager.GetAllChallenges();
+        if (challengeIndex >= 0 && challengeIndex < challenges.Count)
+        {
+            var challenge = challenges[challengeIndex];
+            // TODO: 在这里启动战斗，目前只是记录选择
+            // 后期可以与战斗系统集成
+        }
+    }
+
     private void ProcessLobbyKeyboardInput()
     {
         if (_currentUIState != GameUIState.Game || _currentContentView != ContentView.Button1)
@@ -826,6 +919,11 @@ public class Game1 : Game
             else if (_currentContentView == ContentView.Button5)
             {
                 _uiManager.DrawHandbookPanel(_spriteBatch, _inventoryManager, _handbookScrollOffset, _selectedHandbookItemIndex);
+            }
+            // PVE 挑战界面
+            else if (_currentContentView == ContentView.Button6)
+            {
+                _uiManager.DrawPVEChallengePanel(_spriteBatch, _pveChallengeManager, _selectedChallengeIndex, _pveScrollOffset);
             }
             // 战斗界面但非战斗中：保持空白
             else if (_currentContentView == ContentView.Battle)

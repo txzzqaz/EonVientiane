@@ -21,19 +21,22 @@ public enum ContentView
     Button3 = 3,      // 对战历史
     Button4 = 4,      // 成就
     Button5 = 5,      // 图鉴
+    Button6 = 8,      // 挑战 (PVE)
     Battle = 6,       // 战斗
     Settings = 7
 }
 
 /// <summary>
-/// 输入框枚举
+/// 输入框枚举 - 支持钱包地址和私钥
 /// </summary>
 public enum InputField
 {
     None,
-    Username,
-    Password,
-    Email
+    Username,           // 用户名/钱包地址（登录）
+    Password,           // 密码/私钥（登录）
+    Email,              // 已弃用
+    WalletAddress,      // 钱包地址（注册新钱包）
+    PrivateKey          // 私钥（注册新钱包）
 }
 
 /// <summary>

@@ -342,30 +342,30 @@ public partial class UIManager
         
         // 登录表单区域（居中在右侧面板）
         int formWidth = Math.Min(500, panelWidth - 100);
-        int formHeight = 400;
+        int formHeight = 450;
         int windowX = panelX + (panelWidth - formWidth) / 2;
         int windowY = panelY + (panelHeight - formHeight) / 2;
         Rectangle windowRect = new Rectangle(windowX, windowY, formWidth, formHeight);
         
         spriteBatch.Draw(_buttonTexture, windowRect, Color.Gray * 0.9f);
-        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, windowRect, Color.LightGray, 2);
+        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, windowRect, Color.Cyan, 2);
         
-        // 绘制标题
-        string title = "用户登录";
+        // 绘制标题 - 钱包模式
+        string title = "区块链钱包登录";
         if (_buttonFont != null)
         {
             Vector2 titleSize = _buttonFont.MeasureString(title);
             Vector2 titlePos = new Vector2(windowX + (formWidth - titleSize.X) / 2, windowY + 30);
-            spriteBatch.DrawString(_buttonFont, title, titlePos, Color.White);
+            spriteBatch.DrawString(_buttonFont, title, titlePos, Color.Cyan);
         }
         
-        // 提示文字
-        string hint = "请输入您的账号信息";
+        // 钱包信息提示
+        string hint = "钱包信息: 本地验证";
         if (_buttonFont != null)
         {
             Vector2 hintSize = _buttonFont.MeasureString(hint);
             Vector2 hintPos = new Vector2(windowX + (formWidth - hintSize.X) / 2, windowY + 70);
-            spriteBatch.DrawString(_buttonFont, hint, hintPos, Color.LightGray);
+            spriteBatch.DrawString(_buttonFont, hint, hintPos, Color.LimeGreen);
         }
 
         // 状态文本（如：登录中 / 登录失败 / 登录成功 等）
@@ -375,54 +375,54 @@ public partial class UIManager
             string lower = statusMessage.ToLowerInvariant();
             if (lower.Contains("error") || lower.Contains("失败")) statusColor = Color.OrangeRed;
             else if (lower.Contains("成功") || lower.Contains("success")) statusColor = Color.LimeGreen;
-            else if (lower.Contains("登录中") || lower.Contains("注册中") || lower.Contains("connecting")) statusColor = Color.Yellow;
+            else if (lower.Contains("登录中") || lower.Contains("连接中") || lower.Contains("connecting")) statusColor = Color.Yellow;
 
             Vector2 statusSize = _buttonFont.MeasureString(statusMessage);
             Vector2 statusPos = new Vector2(windowX + (formWidth - statusSize.X) / 2, windowY + 100);
             spriteBatch.DrawString(_buttonFont, statusMessage, statusPos, statusColor);
         }
         
-        // 绘制用户名输入框标签
-        string usernameLabel = "用户名:";
-        Vector2 usernameLabelPos = new Vector2(windowX + 40, windowY + 120);
+        // 绘制钱包地址输入框标签
+        string walletLabel = "钱包地址:";
+        Vector2 walletLabelPos = new Vector2(windowX + 40, windowY + 130);
         if (_buttonFont != null)
-            spriteBatch.DrawString(_buttonFont, usernameLabel, usernameLabelPos, Color.White);
+            spriteBatch.DrawString(_buttonFont, walletLabel, walletLabelPos, Color.White);
         
-        // 绘制用户名输入框
-        Rectangle usernameInputRect = new Rectangle(windowX + 40, windowY + 150, formWidth - 80, 45);
-        spriteBatch.Draw(_buttonTexture, usernameInputRect, Color.White);
-        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, usernameInputRect, activeInputField == InputField.Username ? Color.Blue : Color.Black, activeInputField == InputField.Username ? 3 : 2);
+        // 绘制钱包地址输入框
+        Rectangle walletInputRect = new Rectangle(windowX + 40, windowY + 160, formWidth - 80, 45);
+        spriteBatch.Draw(_buttonTexture, walletInputRect, Color.White);
+        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, walletInputRect, activeInputField == InputField.Username ? Color.Cyan : Color.Black, activeInputField == InputField.Username ? 3 : 2);
         if (_buttonFont != null)
             spriteBatch.DrawString(_buttonFont, loginManager.Username, 
-                new Vector2(usernameInputRect.X + 10, usernameInputRect.Y + 12), Color.Black);
+                new Vector2(walletInputRect.X + 10, walletInputRect.Y + 12), Color.Black);
         
-        // 绘制光标（如果用户名输入框激活）
+        // 绘制光标（如果钱包地址输入框激活）
         if (activeInputField == InputField.Username)
         {
-            int cursorX = usernameInputRect.X + 10 + (int)(_buttonFont?.MeasureString(loginManager.Username).X ?? 0);
-            spriteBatch.Draw(_buttonTexture, new Rectangle(cursorX, usernameInputRect.Y + 10, 2, 28), Color.Black);
+            int cursorX = walletInputRect.X + 10 + (int)(_buttonFont?.MeasureString(loginManager.Username).X ?? 0);
+            spriteBatch.Draw(_buttonTexture, new Rectangle(cursorX, walletInputRect.Y + 10, 2, 28), Color.Black);
         }
         
-        // 绘制密码输入框标签
-        string passwordLabel = "密码:";
-        Vector2 passwordLabelPos = new Vector2(windowX + 40, windowY + 210);
+        // 绘制私钥输入框标签
+        string keyLabel = "私钥/密钥:";
+        Vector2 keyLabelPos = new Vector2(windowX + 40, windowY + 220);
         if (_buttonFont != null)
-            spriteBatch.DrawString(_buttonFont, passwordLabel, passwordLabelPos, Color.White);
+            spriteBatch.DrawString(_buttonFont, keyLabel, keyLabelPos, Color.White);
         
-        // 绘制密码输入框
-        Rectangle passwordInputRect = new Rectangle(windowX + 40, windowY + 240, formWidth - 80, 45);
-        spriteBatch.Draw(_buttonTexture, passwordInputRect, Color.White);
-        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, passwordInputRect, activeInputField == InputField.Password ? Color.Blue : Color.Black, activeInputField == InputField.Password ? 3 : 2);
-        string passwordDisplay = new string('*', loginManager.Password.Length);
+        // 绘制私钥输入框
+        Rectangle keyInputRect = new Rectangle(windowX + 40, windowY + 250, formWidth - 80, 45);
+        spriteBatch.Draw(_buttonTexture, keyInputRect, Color.White);
+        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, keyInputRect, activeInputField == InputField.Password ? Color.Cyan : Color.Black, activeInputField == InputField.Password ? 3 : 2);
+        string keyDisplay = new string('*', loginManager.Password.Length);
         if (_buttonFont != null)
-            spriteBatch.DrawString(_buttonFont, passwordDisplay, 
-                new Vector2(passwordInputRect.X + 10, passwordInputRect.Y + 12), Color.Black);
+            spriteBatch.DrawString(_buttonFont, keyDisplay, 
+                new Vector2(keyInputRect.X + 10, keyInputRect.Y + 12), Color.Black);
         
-        // 绘制光标（如果密码输入框激活）
+        // 绘制光标（如果私钥输入框激活）
         if (activeInputField == InputField.Password)
         {
-            int cursorX = passwordInputRect.X + 10 + (int)(_buttonFont?.MeasureString(passwordDisplay).X ?? 0);
-            spriteBatch.Draw(_buttonTexture, new Rectangle(cursorX, passwordInputRect.Y + 10, 2, 28), Color.Black);
+            int cursorX = keyInputRect.X + 10 + (int)(_buttonFont?.MeasureString(keyDisplay).X ?? 0);
+            spriteBatch.Draw(_buttonTexture, new Rectangle(cursorX, keyInputRect.Y + 10, 2, 28), Color.Black);
         }
         
         spriteBatch.End();
@@ -447,28 +447,28 @@ public partial class UIManager
         spriteBatch.Draw(_buttonTexture, panelRect, Color.DarkSlateGray);
 
         int formWidth = Math.Min(500, panelWidth - 100);
-        int formHeight = 460;
+        int formHeight = 420;
         int windowX = panelX + (panelWidth - formWidth) / 2;
         int windowY = panelY + (panelHeight - formHeight) / 2;
         Rectangle windowRect = new Rectangle(windowX, windowY, formWidth, formHeight);
 
         spriteBatch.Draw(_buttonTexture, windowRect, Color.Gray * 0.9f);
-        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, windowRect, Color.LightGray, 2);
+        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, windowRect, Color.Cyan, 2);
 
-        string title = "用户注册";
+        string title = "区块链钱包注册";
         if (_buttonFont != null)
         {
             Vector2 titleSize = _buttonFont.MeasureString(title);
             Vector2 titlePos = new Vector2(windowX + (formWidth - titleSize.X) / 2, windowY + 30);
-            spriteBatch.DrawString(_buttonFont, title, titlePos, Color.White);
+            spriteBatch.DrawString(_buttonFont, title, titlePos, Color.Cyan);
         }
 
-        string hint = "请输入用户名、密码和邮箱";
+        string hint = "✓ 自动生成钱包";
         if (_buttonFont != null)
         {
             Vector2 hintSize = _buttonFont.MeasureString(hint);
             Vector2 hintPos = new Vector2(windowX + (formWidth - hintSize.X) / 2, windowY + 70);
-            spriteBatch.DrawString(_buttonFont, hint, hintPos, Color.LightGray);
+            spriteBatch.DrawString(_buttonFont, hint, hintPos, Color.LimeGreen);
         }
 
         // 状态文本（注册中/错误/成功）
@@ -478,60 +478,44 @@ public partial class UIManager
             string lower = statusMessage.ToLowerInvariant();
             if (lower.Contains("error") || lower.Contains("失败")) statusColor = Color.OrangeRed;
             else if (lower.Contains("成功") || lower.Contains("success")) statusColor = Color.LimeGreen;
-            else if (lower.Contains("登录中") || lower.Contains("注册中") || lower.Contains("connecting")) statusColor = Color.Yellow;
+            else if (lower.Contains("注册中") || lower.Contains("连接中") || lower.Contains("connecting")) statusColor = Color.Yellow;
 
             Vector2 statusSize = _buttonFont.MeasureString(statusMessage);
             Vector2 statusPos = new Vector2(windowX + (formWidth - statusSize.X) / 2, windowY + 100);
             spriteBatch.DrawString(_buttonFont, statusMessage, statusPos, statusColor);
         }
 
-        // 用户名
-        string usernameLabel = "用户名:";
-        Vector2 usernameLabelPos = new Vector2(windowX + 40, windowY + 120);
+        // 用户名/钱包地址
+        string walletLabel = "钱包地址:";
+        Vector2 walletLabelPos = new Vector2(windowX + 40, windowY + 130);
         if (_buttonFont != null)
-            spriteBatch.DrawString(_buttonFont, usernameLabel, usernameLabelPos, Color.White);
-        Rectangle usernameInputRect = new Rectangle(windowX + 40, windowY + 150, formWidth - 80, 45);
-        spriteBatch.Draw(_buttonTexture, usernameInputRect, Color.White);
-        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, usernameInputRect, activeInputField == InputField.Username ? Color.Blue : Color.Black, activeInputField == InputField.Username ? 3 : 2);
+            spriteBatch.DrawString(_buttonFont, walletLabel, walletLabelPos, Color.White);
+        Rectangle walletInputRect = new Rectangle(windowX + 40, windowY + 160, formWidth - 80, 45);
+        spriteBatch.Draw(_buttonTexture, walletInputRect, Color.White);
+        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, walletInputRect, activeInputField == InputField.WalletAddress ? Color.Cyan : Color.Black, activeInputField == InputField.WalletAddress ? 3 : 2);
         if (_buttonFont != null)
-            spriteBatch.DrawString(_buttonFont, loginManager.Username, new Vector2(usernameInputRect.X + 10, usernameInputRect.Y + 12), Color.Black);
-        if (activeInputField == InputField.Username)
+            spriteBatch.DrawString(_buttonFont, loginManager.WalletAddress, new Vector2(walletInputRect.X + 10, walletInputRect.Y + 12), Color.Black);
+        if (activeInputField == InputField.WalletAddress)
         {
-            int cursorX = usernameInputRect.X + 10 + (int)(_buttonFont?.MeasureString(loginManager.Username).X ?? 0);
-            spriteBatch.Draw(_buttonTexture, new Rectangle(cursorX, usernameInputRect.Y + 10, 2, 28), Color.Black);
+            int cursorX = walletInputRect.X + 10 + (int)(_buttonFont?.MeasureString(loginManager.WalletAddress).X ?? 0);
+            spriteBatch.Draw(_buttonTexture, new Rectangle(cursorX, walletInputRect.Y + 10, 2, 28), Color.Black);
         }
 
-        // 密码
-        string passwordLabel = "密码:";
-        Vector2 passwordLabelPos = new Vector2(windowX + 40, windowY + 210);
+        // 私钥
+        string keyLabel = "私钥:";
+        Vector2 keyLabelPos = new Vector2(windowX + 40, windowY + 220);
         if (_buttonFont != null)
-            spriteBatch.DrawString(_buttonFont, passwordLabel, passwordLabelPos, Color.White);
-        Rectangle passwordInputRect = new Rectangle(windowX + 40, windowY + 240, formWidth - 80, 45);
-        spriteBatch.Draw(_buttonTexture, passwordInputRect, Color.White);
-        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, passwordInputRect, activeInputField == InputField.Password ? Color.Blue : Color.Black, activeInputField == InputField.Password ? 3 : 2);
-        string passwordDisplay = new string('*', loginManager.Password.Length);
+            spriteBatch.DrawString(_buttonFont, keyLabel, keyLabelPos, Color.White);
+        Rectangle keyInputRect = new Rectangle(windowX + 40, windowY + 250, formWidth - 80, 45);
+        spriteBatch.Draw(_buttonTexture, keyInputRect, Color.White);
+        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, keyInputRect, activeInputField == InputField.PrivateKey ? Color.Cyan : Color.Black, activeInputField == InputField.PrivateKey ? 3 : 2);
+        string keyDisplay = new string('*', loginManager.PrivateKey.Length);
         if (_buttonFont != null)
-            spriteBatch.DrawString(_buttonFont, passwordDisplay, new Vector2(passwordInputRect.X + 10, passwordInputRect.Y + 12), Color.Black);
-        if (activeInputField == InputField.Password)
+            spriteBatch.DrawString(_buttonFont, keyDisplay, new Vector2(keyInputRect.X + 10, keyInputRect.Y + 12), Color.Black);
+        if (activeInputField == InputField.PrivateKey)
         {
-            int cursorX = passwordInputRect.X + 10 + (int)(_buttonFont?.MeasureString(passwordDisplay).X ?? 0);
-            spriteBatch.Draw(_buttonTexture, new Rectangle(cursorX, passwordInputRect.Y + 10, 2, 28), Color.Black);
-        }
-
-        // 邮箱
-        string emailLabel = "邮箱:";
-        Vector2 emailLabelPos = new Vector2(windowX + 40, windowY + 300);
-        if (_buttonFont != null)
-            spriteBatch.DrawString(_buttonFont, emailLabel, emailLabelPos, Color.White);
-        Rectangle emailInputRect = new Rectangle(windowX + 40, windowY + 330, formWidth - 80, 45);
-        spriteBatch.Draw(_buttonTexture, emailInputRect, Color.White);
-        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, emailInputRect, activeInputField == InputField.Email ? Color.Blue : Color.Black, activeInputField == InputField.Email ? 3 : 2);
-        if (_buttonFont != null)
-            spriteBatch.DrawString(_buttonFont, loginManager.Email, new Vector2(emailInputRect.X + 10, emailInputRect.Y + 12), Color.Black);
-        if (activeInputField == InputField.Email)
-        {
-            int cursorX = emailInputRect.X + 10 + (int)(_buttonFont?.MeasureString(loginManager.Email).X ?? 0);
-            spriteBatch.Draw(_buttonTexture, new Rectangle(cursorX, emailInputRect.Y + 10, 2, 28), Color.Black);
+            int cursorX = keyInputRect.X + 10 + (int)(_buttonFont?.MeasureString(keyDisplay).X ?? 0);
+            spriteBatch.Draw(_buttonTexture, new Rectangle(cursorX, keyInputRect.Y + 10, 2, 28), Color.Black);
         }
 
         spriteBatch.End();
@@ -1573,6 +1557,142 @@ public partial class UIManager
             // 对战时间和持续时间
             spriteBatch.DrawString(_buttonFont, $"时间: {record.BattleDateTime:yyyy-MM-dd HH:mm:ss} (耗时{record.DurationSeconds}秒, 回合{record.TotalRounds})", 
                 new Vector2(detailX, detailY), Color.LightGray, 0f, Vector2.Zero, 0.85f, SpriteEffects.None, 0f);
+        }
+
+        spriteBatch.End();
+    }
+
+    /// <summary>
+    /// 绘制 PVE 挑战界面
+    /// </summary>
+    public void DrawPVEChallengePanel(SpriteBatch spriteBatch, PVEChallengeManager challengeManager, int? selectedChallengeIndex = null, int scrollOffset = 0)
+    {
+        int panelX = _menuWidth;
+        int panelY = 0;
+        int panelWidth = _graphics.PreferredBackBufferWidth - _menuWidth;
+        int panelHeight = _graphics.PreferredBackBufferHeight;
+
+        spriteBatch.Begin();
+
+        // 背景
+        Rectangle panelRect = new Rectangle(panelX, panelY, panelWidth, panelHeight);
+        spriteBatch.Draw(_buttonTexture, panelRect, Color.MidnightBlue * 0.6f);
+
+        // 标题
+        string title = "PVE 挑战";
+        if (_buttonFont != null)
+        {
+            Vector2 titleSize = _buttonFont.MeasureString(title);
+            Vector2 titlePos = new Vector2(panelX + 30, panelY + 20);
+            spriteBatch.DrawString(_buttonFont, title, titlePos, Color.Gold);
+        }
+
+        spriteBatch.End();
+
+        // 绘制挑战列表
+        var challenges = challengeManager.GetAllChallenges();
+        int challengeHeight = 80;
+        int challengeSpacing = 10;
+        int listStartX = panelX + 20;
+        int listStartY = panelY + 70;
+        int listWidth = panelWidth - 40;
+        int maxVisibleChallenges = (panelHeight - 100) / (challengeHeight + challengeSpacing);
+
+        spriteBatch.Begin();
+
+        for (int i = 0; i < challenges.Count; i++)
+        {
+            int displayY = listStartY + i * (challengeHeight + challengeSpacing) - scrollOffset;
+
+            if (displayY + challengeHeight < listStartY || displayY > panelY + panelHeight)
+                continue;
+
+            var challenge = challenges[i];
+            var challengeRect = new Rectangle(listStartX, displayY, listWidth, challengeHeight);
+
+            // 背景色：已完成为绿色，未完成为蓝色，选中为高亮
+            Color bgColor = challenge.IsCompleted ? Color.DarkGreen * 0.4f : Color.DarkBlue * 0.4f;
+            if (selectedChallengeIndex == i)
+                bgColor = Color.LimeGreen * 0.5f;
+
+            spriteBatch.Draw(_buttonTexture, challengeRect, bgColor);
+            DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, challengeRect, Color.SteelBlue, 2);
+
+            if (_buttonFont != null)
+            {
+                int textX = listStartX + 15;
+                int textY = displayY + 8;
+
+                // 挑战名称
+                spriteBatch.DrawString(_buttonFont, challenge.Name, new Vector2(textX, textY), Color.Gold);
+                textY += 20;
+
+                // 难度和完成状态
+                string difficultyText = $"难度: {'⭐' * challenge.Difficulty}";
+                string statusText = challenge.IsCompleted ? "✓ 已完成" : "未完成";
+                Color statusColor = challenge.IsCompleted ? Color.LimeGreen : Color.LightCoral;
+
+                spriteBatch.DrawString(_buttonFont, difficultyText, new Vector2(textX, textY), Color.LightYellow, 0f, Vector2.Zero, 0.85f, SpriteEffects.None, 0f);
+                spriteBatch.DrawString(_buttonFont, statusText, new Vector2(textX + 150, textY), statusColor, 0f, Vector2.Zero, 0.85f, SpriteEffects.None, 0f);
+                textY += 18;
+
+                // 对手骰子和奖励
+                string opponentDice = string.Join(", ", challenge.OpponentDiceNames);
+                string rewardText = $"奖励: {challenge.RewardGold} 金币";
+                spriteBatch.DrawString(_buttonFont, $"对手: {challenge.OpponentName}", new Vector2(textX, textY), Color.LightCyan, 0f, Vector2.Zero, 0.8f, SpriteEffects.None, 0f);
+                spriteBatch.DrawString(_buttonFont, rewardText, new Vector2(textX + 200, textY), Color.Yellow, 0f, Vector2.Zero, 0.8f, SpriteEffects.None, 0f);
+            }
+        }
+
+        spriteBatch.End();
+
+        // 如果有选中的挑战，绘制详情面板
+        if (selectedChallengeIndex.HasValue && selectedChallengeIndex.Value >= 0 && selectedChallengeIndex.Value < challenges.Count)
+        {
+            DrawPVEChallengeDetail(spriteBatch, challenges[selectedChallengeIndex.Value], listStartX, listStartY + maxVisibleChallenges * (challengeHeight + challengeSpacing) + 20, listWidth);
+        }
+    }
+
+    /// <summary>
+    /// 绘制 PVE 挑战详情
+    /// </summary>
+    private void DrawPVEChallengeDetail(SpriteBatch spriteBatch, PVEChallenge challenge, int x, int y, int width)
+    {
+        int detailHeight = 150;
+        Rectangle detailRect = new Rectangle(x, y, width, detailHeight);
+
+        spriteBatch.Begin();
+
+        // 详情面板背景
+        spriteBatch.Draw(_buttonTexture, detailRect, Color.Black * 0.4f);
+        DrawingHelper.DrawRectangle(spriteBatch, _buttonTexture, detailRect, Color.SteelBlue, 2);
+
+        if (_buttonFont != null)
+        {
+            int detailX = x + 15;
+            int detailY = y + 10;
+            int lineHeight = 25;
+
+            // 详情标题
+            spriteBatch.DrawString(_buttonFont, "挑战详情", new Vector2(detailX, detailY), Color.Gold);
+
+            detailY += 30;
+
+            // 挑战描述
+            spriteBatch.DrawString(_buttonFont, $"描述: {challenge.Description}", 
+                new Vector2(detailX, detailY), Color.LightGray, 0f, Vector2.Zero, 0.85f, SpriteEffects.None, 0f);
+            detailY += lineHeight;
+
+            // 对手信息
+            string diceList = string.Join(" | ", challenge.OpponentDiceNames);
+            spriteBatch.DrawString(_buttonFont, $"对手骰子: {diceList}", 
+                new Vector2(detailX, detailY), Color.LightCyan, 0f, Vector2.Zero, 0.85f, SpriteEffects.None, 0f);
+            detailY += lineHeight;
+
+            // 奖励和完成状态
+            string completionStatus = challenge.IsCompleted ? "✓ 已完成" : "未完成 (点击战斗)";
+            Color statusColor = challenge.IsCompleted ? Color.LimeGreen : Color.LightCoral;
+            spriteBatch.DrawString(_buttonFont, completionStatus, new Vector2(detailX, detailY), statusColor);
         }
 
         spriteBatch.End();

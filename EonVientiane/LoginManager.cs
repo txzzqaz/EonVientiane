@@ -4,20 +4,61 @@ using System.Collections.Generic;
 namespace EonVientiane;
 
 /// <summary>
-/// 登录管理器 - 处理用户认证逻辑
+/// 登录管理器 - 支持本地离线登录和服务器认证
 /// </summary>
 public class LoginManager
 {
     private Dictionary<string, UserProfile> _users;
     private UserProfile _currentUser;
-    public string Username { get; set; } = "";
-    public string Password { get; set; } = "";
-    public string Email { get; set; } = "";
+    private LocalAccountManager _localAccountManager;
+    private bool _isOfflineMode = false;
+    
+    public string Username { get; set; } = "";  // 登录时为钱包地址
+    public string Password { get; set; } = "";  // 登录时为私钥/密钥
+    public string Email { get; set; } = "";     // 已弃用
+    public string WalletAddress { get; set; } = "";  // 注册时的钱包地址
+    public string PrivateKey { get; set; } = "";      // 注册时的私钥
+    
+    public bool IsOfflineMode => _isOfflineMode;
+    public LocalAccountManager LocalAccountManager => _localAccountManager;
     
     public LoginManager()
     {
         _users = new Dictionary<string, UserProfile>();
-        // 客户端不再存储内置用户，所有认证由服务器处理
+        _localAccountManager = new LocalAccountManager();
+        // 客户端支持本地离线账户和服务器认证
+    }
+    
+    /// <summary>
+    /// 本地离线登录
+    /// </summary>
+    public (bool success, string message) LocalLogin(string username, string password)
+    {
+        var (success, account, message) = _localAccountManager.Login(username, password);
+        
+        if (success && account != null)
+        {
+            // 创建本地用户配置
+            _currentUser = new UserProfile(
+                account.Username,
+                account.Email,
+                account.CreatedDate,
+                account.ProfileData.ContainsKey("level") ? account.ProfileData["level"] : "1"
+            );
+            _isOfflineMode = true;
+            System.Diagnostics.Debug.WriteLine($"本地离线登录成功: {username}");
+            return (true, "本地离线登录成功");
+        }
+        
+        return (false, message);
+    }
+    
+    /// <summary>
+    /// 本地离线注册
+    /// </summary>
+    public (bool success, string message) LocalRegister(string username, string password, string email)
+    {
+        return _localAccountManager.CreateAccount(username, password, email);
     }
     
     /// <summary>
@@ -60,6 +101,7 @@ public class LoginManager
     public void SetCurrentUser(UserProfile user)
     {
         _currentUser = user;
+        _isOfflineMode = false;
         System.Diagnostics.Debug.WriteLine($"User {user.Username} logged in successfully!");
     }
     
@@ -73,6 +115,7 @@ public class LoginManager
             System.Diagnostics.Debug.WriteLine($"User {_currentUser.Username} logged out!");
             _currentUser = null;
         }
+        _isOfflineMode = false;
         ClearInput();
     }
     
@@ -102,3 +145,4 @@ public class LoginManager
         return _currentUser != null;
     }
 }
+

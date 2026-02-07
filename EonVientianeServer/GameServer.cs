@@ -478,10 +478,8 @@ public class GameServer
 
         try
         {
-            // 根据是否为测试账号选择不同的初始化方法
-            var initialFactory = _userManager.IsTestAccount(client.UserId)
-                ? (Func<List<InitialInventoryItem>>)ItemInitializer.GetTestAccountInventory
-                : () => ItemInitializer.GetInitialInventory(client.UserId);
+            // 统一使用GetInitialInventory初始化背包
+            Func<List<InitialInventoryItem>> initialFactory = () => ItemInitializer.GetInitialInventory(client.UserId);
                 
             var state = _inventoryStore.LoadOrCreate(client.UserId, initialFactory);
             var dto = _inventoryStore.ToDto(state);
@@ -518,9 +516,7 @@ public class GameServer
             return;
         }
 
-        var initialFactory = _userManager.IsTestAccount(client.UserId)
-            ? (Func<List<InitialInventoryItem>>)ItemInitializer.GetTestAccountInventory
-            : () => ItemInitializer.GetInitialInventory(client.UserId);
+        var initialFactory = () => ItemInitializer.GetInitialInventory(client.UserId);
         var state = _inventoryStore.LoadOrCreate(client.UserId, initialFactory);
         var stack = state.Items.FirstOrDefault(i => i.StackId == request.StackId);
 
@@ -556,9 +552,7 @@ public class GameServer
             return;
         }
 
-        var initialFactory = _userManager.IsTestAccount(client.UserId)
-            ? (Func<List<InitialInventoryItem>>)ItemInitializer.GetTestAccountInventory
-            : () => ItemInitializer.GetInitialInventory(client.UserId);
+        var initialFactory = () => ItemInitializer.GetInitialInventory(client.UserId);
         var state = _inventoryStore.LoadOrCreate(client.UserId, initialFactory);
         var stack = state.Items.FirstOrDefault(i => i.StackId == request.StackId);
 
@@ -1074,9 +1068,7 @@ public class GameServer
             
             foreach (var client in clients)
             {
-                var initialFactory = _userManager.IsTestAccount(client.UserId)
-                    ? (Func<List<InitialInventoryItem>>)ItemInitializer.GetTestAccountInventory
-                    : () => ItemInitializer.GetInitialInventory(client.UserId);
+                var initialFactory = () => ItemInitializer.GetInitialInventory(client.UserId);
                 var inventoryState = _inventoryStore.LoadOrCreate(client.UserId, initialFactory);
                 
                 var equippedItems = inventoryState.Items

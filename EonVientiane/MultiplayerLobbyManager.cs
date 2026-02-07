@@ -2,10 +2,22 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using EonVientiane.Shared;
 
 namespace EonVientiane;
+
+/// <summary>
+/// 大厅状态
+/// </summary>
+public enum LobbyState
+{
+    Disconnected,
+    Connecting,
+    InLobby,
+    InRoom
+}
 
 /// <summary>
 /// 联机大厅管理器 - 处理大厅UI和逻辑
@@ -50,10 +62,22 @@ public class MultiplayerLobbyManager
     public event Action<BattleStateUpdateNotification> BattleStateUpdated;
     public event Action<BattleEndNotification> BattleEnded;
     
+    // 本地游戏相关
+    private LocalNetworkManager _localNetworkManager;
+    private LocalGameServer _localGameServer;
+    private bool _isLocalGameMode = false;
+    
+    public event Action<LocalNetworkManager.LocalHost> LocalHostDiscovered;
+    public event Action<string> LocalHostLost;
+    public event Action<LocalGameInfo> LocalGameCreated;
+    public List<LocalNetworkManager.LocalHost> DiscoveredHosts => _localNetworkManager?.DiscoveredHosts ?? new();
+    
     public MultiplayerLobbyManager()
     {
         _networkClient = new Network.NetworkClient();
         _lobbyManager = new Network.LobbyManager(_networkClient);
+        _localNetworkManager = new LocalNetworkManager();
+        _localGameServer = new LocalGameServer();
         
         // 订阅事件
         _networkClient.Connected += OnConnected;
@@ -76,6 +100,11 @@ public class MultiplayerLobbyManager
         // 订阅战斗相关事件
         _lobbyManager.BattleStateUpdated += OnBattleStateUpdated;
         _lobbyManager.BattleEnded += OnBattleEnded;
+        
+        // 订阅本地网络事件
+        _localNetworkManager.HostDiscovered += (host) => LocalHostDiscovered?.Invoke(host);
+        _localNetworkManager.HostLost += (username) => LocalHostLost?.Invoke(username);
+        _localGameServer.GameCreated += (gameId) => Console.WriteLine($"[Lobby] 本地游戏创建: {gameId}");
     }
     
     public void ConfigurePlayer(string playerName)
@@ -532,15 +561,128 @@ public class MultiplayerLobbyManager
     {
         BattleEnded?.Invoke(notification);
     }
+
+    // ===== 本地游戏功能 =====
+    
+    /// <summary>
+    /// 启动本地游戏模式（局域网模式）
+    /// </summary>
+    public async Task StartLocalGameModeAsync(string username)
+    {
+        try
+        {
+            _isLocalGameMode = true;
+            _playerName = username;
+
+            // 启动本地网络发现
+            var localIp = LocalNetworkManager.GetLocalIPAddress();
+            var hostInfo = new LocalNetworkManager.LocalHost
+            {
+                Hostname = Environment.MachineName,
+                Username = username,
+                IpAddress = localIp,
+                GamePort = 18888
+            };
+
+            await _localNetworkManager.StartDiscoveryAsync(hostInfo);
+
+            // 启动本地游戏服务器
+            await _localGameServer.StartAsync();
+
+            _statusMessage = "本地游戏模式已启动";
+            Console.WriteLine($"[Lobby] 本地游戏模式启动成功，IP: {localIp}");
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"启动本地模式失败: {ex.Message}";
+            Console.WriteLine($"[Lobby] 启动本地模式失败: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 停止本地游戏模式
+    /// </summary>
+    public void StopLocalGameMode()
+    {
+        _isLocalGameMode = false;
+        _localNetworkManager.StopDiscovery();
+        _localGameServer.Stop();
+        _statusMessage = "本地游戏模式已停止";
+        Console.WriteLine("[Lobby] 本地游戏模式已停止");
+    }
+
+    /// <summary>
+    /// 创建本地游戏
+    /// </summary>
+    public async Task<bool> CreateLocalGameAsync(string gameName, int maxPlayers = 2)
+    {
+        try
+        {
+            var request = new LocalGameCreateRequest
+            {
+                GameName = gameName,
+                HostUsername = _playerName,
+                MaxPlayers = maxPlayers
+            };
+
+            var message = NetworkMessage.Create(MessageType.LocalGameCreate, request);
+            // 这里可以发送到本地服务器或直接创建
+            Console.WriteLine($"[Lobby] 创建本地游戏: {gameName}, 最大玩家数: {maxPlayers}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Lobby] 创建本地游戏失败: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 加入本地游戏
+    /// </summary>
+    public async Task<bool> JoinLocalGameAsync(string hostUsername, string gameId)
+    {
+        try
+        {
+            // 查找主机
+            var host = _localNetworkManager.DiscoveredHosts
+                .FirstOrDefault(h => h.Username == hostUsername);
+
+            if (host == null)
+            {
+                _statusMessage = $"找不到主机: {hostUsername}";
+                return false;
+            }
+
+            Console.WriteLine($"[Lobby] 加入本地游戏: {gameId} (主机: {hostUsername})");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Lobby] 加入本地游戏失败: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 获取本地发现的主机列表
+    /// </summary>
+    public List<LocalNetworkManager.LocalHost> GetDiscoveredHosts()
+    {
+        return _localNetworkManager.DiscoveredHosts;
+    }
+
+    /// <summary>
+    /// 获取活跃的本地游戏列表
+    /// </summary>
+    public List<LocalGameInfo> GetActiveLocalGames()
+    {
+        return _localGameServer.GetActiveGames();
+    }
+
+    /// <summary>
+    /// 是否处于本地游戏模式
+    /// </summary>
+    public bool IsLocalGameMode => _isLocalGameMode;
 }
 
-/// <summary>
-/// 大厅状态
-/// </summary>
-public enum LobbyState
-{
-    Disconnected,
-    Connecting,
-    InLobby,
-    InRoom
-}

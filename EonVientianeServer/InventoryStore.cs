@@ -37,20 +37,10 @@ public class InventoryStore
             var path = GetPath(userId);
             UserInventoryStateData state;
 
-            // 检查是否为测试账号
-            bool isTestAccount = _userManager?.IsTestAccount(userId) ?? false;
-
             if (File.Exists(path))
             {
                 var text = File.ReadAllText(path);
                 state = JsonSerializer.Deserialize<UserInventoryStateData>(text, _jsonOptions) ?? new UserInventoryStateData { UserId = userId };
-                
-                // 如果是测试账号，同步更新道具列表
-                if (isTestAccount)
-                {
-                    state = SyncTestAccountInventory(state);
-                    SaveInternal(state);
-                }
             }
             else
             {
@@ -63,35 +53,6 @@ public class InventoryStore
         }
     }
     
-    /// <summary>
-    /// 同步测试账号的道具列表，确保包含所有最新道具
-    /// </summary>
-    private UserInventoryStateData SyncTestAccountInventory(UserInventoryStateData state)
-    {
-        var allItems = ItemInitializer.GetAllItems();
-        var existingItemIds = new HashSet<string>(state.Items.Select(i => i.ItemId));
-        
-        // 添加新道具
-        foreach (var (itemId, itemName) in allItems)
-        {
-            if (!existingItemIds.Contains(itemId))
-            {
-                int quantity = 10;
-                state.Items.Add(new InventoryStackRecord
-                {
-                    StackId = Guid.NewGuid().ToString("N"),
-                    ItemId = itemId,
-                    ItemName = itemName,
-                    Quantity = quantity,
-                    IsEquipped = false
-                });
-                Console.WriteLine($"[InventoryStore] Added new item '{itemName}' to test account {state.UserId}");
-            }
-        }
-        
-        return state;
-    }
-
     public UserInventoryStateData Save(UserInventoryStateData state)
     {
         lock (_lock)

@@ -18,7 +18,7 @@ public class LoginInputHandler
     }
 
     /// <summary>
-    /// 处理注册窗口的输入
+    /// 处理注册窗口的输入 - 钱包模式
     /// </summary>
     public LoginInputResult HandleRegistrationInput(MouseState mouseState, MouseState previousMouseState,
         LoginManager loginManager, ref InputField activeInputField, int screenWidth, int screenHeight)
@@ -32,14 +32,13 @@ public class LoginInputHandler
             int panelWidth = screenWidth - _menuWidth;
             int panelHeight = screenHeight;
             int formWidth = Math.Min(500, panelWidth - 100);
-            int formHeight = 460;
+            int formHeight = 420;
             int windowX = panelX + (panelWidth - formWidth) / 2;
             int windowY = (panelHeight - formHeight) / 2;
 
-            // 输入框区域
-            var usernameInputRect = new Microsoft.Xna.Framework.Rectangle(windowX + 40, windowY + 150, formWidth - 80, 45);
-            var passwordInputRect = new Microsoft.Xna.Framework.Rectangle(windowX + 40, windowY + 240, formWidth - 80, 45);
-            var emailInputRect = new Microsoft.Xna.Framework.Rectangle(windowX + 40, windowY + 330, formWidth - 80, 45);
+            // 输入框区域 - 仅支持钱包地址和私钥
+            var walletInputRect = new Microsoft.Xna.Framework.Rectangle(windowX + 40, windowY + 160, formWidth - 80, 45);
+            var keyInputRect = new Microsoft.Xna.Framework.Rectangle(windowX + 40, windowY + 250, formWidth - 80, 45);
 
             // 两个按钮：提交、返回
             int buttonWidth = 140;
@@ -54,21 +53,17 @@ public class LoginInputHandler
 
             var mousePoint = new Microsoft.Xna.Framework.Point(mouseState.X, mouseState.Y);
 
-            if (usernameInputRect.Contains(mousePoint))
+            if (walletInputRect.Contains(mousePoint))
             {
-                activeInputField = InputField.Username;
+                activeInputField = InputField.WalletAddress;
             }
-            else if (passwordInputRect.Contains(mousePoint))
+            else if (keyInputRect.Contains(mousePoint))
             {
-                activeInputField = InputField.Password;
-            }
-            else if (emailInputRect.Contains(mousePoint))
-            {
-                activeInputField = InputField.Email;
+                activeInputField = InputField.PrivateKey;
             }
             else if (submitButtonRect.Contains(mousePoint))
             {
-                if (loginManager.Register(loginManager.Username, loginManager.Password, loginManager.Email))
+                if (loginManager.Register(loginManager.WalletAddress, loginManager.PrivateKey, ""))
                 {
                     result.RegistrationRequested = true;
                     activeInputField = InputField.None;
@@ -85,7 +80,7 @@ public class LoginInputHandler
             }
         }
 
-        // 处理键盘输入（注册界面支持三种输入框）
+        // 处理键盘输入
         ProcessRegistrationKeyboardInput(Keyboard.GetState(), loginManager, activeInputField, ref result);
 
         return result;
@@ -101,11 +96,9 @@ public class LoginInputHandler
         {
             if (_inputManager.PreviousKeyboardState.IsKeyUp(key))
             {
-                string targetText = activeInputField == InputField.Username
-                    ? loginManager.Username
-                    : activeInputField == InputField.Password
-                        ? loginManager.Password
-                        : loginManager.Email;
+                string targetText = activeInputField == InputField.WalletAddress
+                    ? loginManager.WalletAddress
+                    : loginManager.PrivateKey;
 
                 if (key == Keys.Back)
                 {
@@ -114,18 +107,16 @@ public class LoginInputHandler
                 }
                 else if (key == Keys.Tab)
                 {
-                    // 在注册表单中循环切换 Username -> Password -> Email -> Username
-                    if (activeInputField == InputField.Username)
-                        activeInputField = InputField.Password;
-                    else if (activeInputField == InputField.Password)
-                        activeInputField = InputField.Email;
+                    // 在注册表单中仅在钱包地址和私钥之间切换
+                    if (activeInputField == InputField.WalletAddress)
+                        activeInputField = InputField.PrivateKey;
                     else
-                        activeInputField = InputField.Username;
+                        activeInputField = InputField.WalletAddress;
                     return;
                 }
                 else if (key == Keys.Enter)
                 {
-                    if (loginManager.Register(loginManager.Username, loginManager.Password, loginManager.Email))
+                    if (loginManager.Register(loginManager.WalletAddress, loginManager.PrivateKey, ""))
                     {
                         result.RegistrationRequested = true;
                     }
@@ -134,23 +125,21 @@ public class LoginInputHandler
                 else
                 {
                     char? character = InputManager.GetCharFromKey(key, keyboardState.IsKeyDown(Keys.LeftShift) || keyboardState.IsKeyDown(Keys.RightShift));
-                    if (character.HasValue && targetText.Length < 50)
+                    if (character.HasValue && targetText.Length < 100)
                     {
                         targetText += character.Value;
                     }
                 }
 
-                if (activeInputField == InputField.Username)
-                    loginManager.Username = targetText;
-                else if (activeInputField == InputField.Password)
-                    loginManager.Password = targetText;
+                if (activeInputField == InputField.WalletAddress)
+                    loginManager.WalletAddress = targetText;
                 else
-                    loginManager.Email = targetText;
+                    loginManager.PrivateKey = targetText;
             }
         }
     }
     /// <summary>
-    /// 处理登录窗口的输入
+    /// 处理登录窗口的输入 - 钱包模式
     /// </summary>
     public LoginInputResult HandleInput(MouseState mouseState, MouseState previousMouseState, 
         LoginManager loginManager, ref InputField activeInputField, int screenWidth, int screenHeight)
@@ -164,14 +153,14 @@ public class LoginInputHandler
             int panelWidth = screenWidth - _menuWidth;
             int panelHeight = screenHeight;
             int formWidth = Math.Min(500, panelWidth - 100);
-            int formHeight = 400;
+            int formHeight = 450;
             int windowX = panelX + (panelWidth - formWidth) / 2;
             int windowY = (panelHeight - formHeight) / 2;
 
-            // 检查用户名输入框
-            Microsoft.Xna.Framework.Rectangle usernameInputRect = new Microsoft.Xna.Framework.Rectangle(windowX + 40, windowY + 150, formWidth - 80, 45);
-            // 检查密码输入框
-            Microsoft.Xna.Framework.Rectangle passwordInputRect = new Microsoft.Xna.Framework.Rectangle(windowX + 40, windowY + 240, formWidth - 80, 45);
+            // 检查钱包地址输入框
+            Microsoft.Xna.Framework.Rectangle walletInputRect = new Microsoft.Xna.Framework.Rectangle(windowX + 40, windowY + 160, formWidth - 80, 45);
+            // 检查私钥输入框
+            Microsoft.Xna.Framework.Rectangle keyInputRect = new Microsoft.Xna.Framework.Rectangle(windowX + 40, windowY + 250, formWidth - 80, 45);
 
             // 三个按钮：注册、登录、取消
             int buttonWidth = 120;
@@ -191,11 +180,11 @@ public class LoginInputHandler
             Microsoft.Xna.Framework.Point mousePoint = new Microsoft.Xna.Framework.Point(mouseState.X, mouseState.Y);
 
             // 检查点击输入框
-            if (usernameInputRect.Contains(mousePoint))
+            if (walletInputRect.Contains(mousePoint))
             {
                 activeInputField = InputField.Username;
             }
-            else if (passwordInputRect.Contains(mousePoint))
+            else if (keyInputRect.Contains(mousePoint))
             {
                 activeInputField = InputField.Password;
             }
@@ -266,7 +255,8 @@ public class LoginInputHandler
                 // 处理Tab键切换输入框
                 else if (key == Keys.Tab)
                 {
-                    // Tab处理留给Game1
+                    // 在钱包地址和私钥之间切换
+                    activeInputField = activeInputField == InputField.Username ? InputField.Password : InputField.Username;
                     return;
                 }
                 // 处理Enter键登录
@@ -283,7 +273,7 @@ public class LoginInputHandler
                 else
                 {
                     char? character = InputManager.GetCharFromKey(key, keyboardState.IsKeyDown(Keys.LeftShift) || keyboardState.IsKeyDown(Keys.RightShift));
-                    if (character.HasValue && targetText.Length < 20)
+                    if (character.HasValue && targetText.Length < 100)
                     {
                         targetText += character.Value;
                     }
