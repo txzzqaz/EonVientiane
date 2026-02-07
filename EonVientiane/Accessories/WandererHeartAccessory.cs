@@ -12,7 +12,12 @@ namespace EonVientiane;
 public class WandererHeartAccessory : Accessory
 {
     public WandererHeartAccessory()
-        : base("wanderer_heart", "漫游者之心", "纯粹")
+        : base(
+            id: "wanderer_heart",
+            name: "漫游者之心",
+            description: "纯粹",
+            function: "若最慢一步选择时间在1秒内，最终攻击点数倍率根据时间增加：0秒=10倍，1秒=1倍。超过1秒无加成。奖励快速操作"
+        )
     {
         DisplayColor = Color.Cyan;
         AccessorySlotsCost = 3;

@@ -26,7 +26,13 @@ public class D6Dice : Dice
     private Random _random;
     
     public D6Dice(DiceUsageType usageType = DiceUsageType.Both)
-        : base("d6_dice", "D6", "Reroll your destiny.", usageType)
+        : base(
+            id: "d6_dice",
+            name: "D6",
+            description: "Reroll your destiny.",
+            usageType: usageType,
+            function: "掷六面骰。主动使用获得ATKP（攻击点数）；被动使用获得DEFP（防御点数）。ATKP ≤ DEFP则完全防御无伤；ATKP > DEFP则受到差值伤害"
+        )
     {
         _random = new Random();
         DisplayColor = Color.White;

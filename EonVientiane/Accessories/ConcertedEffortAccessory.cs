@@ -13,7 +13,13 @@ public class ConcertedEffortAccessory : Accessory
     private int? _lastRoll;
 
     public ConcertedEffortAccessory()
-        : base("concerted_effort", "戮力同心", "运，赢！", "yyzh")
+        : base(
+            id: "concerted_effort",
+            name: "戮力同心",
+            description: "运，赢！",
+            creator: "yyzh",
+            function: "若掷出点数与上一次相同（连号），本回合行动效果提升为 n×n（n为点数）倍。否则效果不变但记录本次点数"
+        )
     {
         DisplayColor = Color.Goldenrod;
         AccessorySlotsCost = 1;

@@ -17,7 +17,13 @@ public class SpringBreezeDice : Dice
     private Random _random;
     
     public SpringBreezeDice()
-        : base("spring_breeze", "春风", "生生不息", DiceUsageType.Active)
+        : base(
+            id: "spring_breeze",
+            name: "春风",
+            description: "生生不息",
+            usageType: DiceUsageType.Active,
+            function: "掷四面骰获得SPRP（春风点数）。将下一栏位骰子的计数器修改为（原值-SPRP），允许为负数。仅对支持计数器的骰子生效"
+        )
     {
         _random = new Random();
         DisplayColor = Color.LightGreen;

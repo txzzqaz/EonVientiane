@@ -946,6 +946,14 @@ public class BattleManager
                     bool hasIcon = _iconProvider?.TryDrawIcon(spriteBatch, dice, iconRect, enabled ? Color.White : Color.Gray) ?? false;
                     int textX = rect.X + 10 + (hasIcon ? iconSize + 6 : 0);
                     spriteBatch.DrawString(font, dice.Name, new Vector2(textX, rect.Y + 8), enabled ? Color.White : Color.Gray);
+                    
+                    // 显示计数器（如果有）
+                    if (dice is ICounterDice counterDice)
+                    {
+                        string counterText = $"[{counterDice.Counter}]";
+                        spriteBatch.DrawString(font, counterText, new Vector2(textX, rect.Y + 26), Color.Orange, 0f, Vector2.Zero, 0.8f, Microsoft.Xna.Framework.Graphics.SpriteEffects.None, 0f);
+                    }
+                    
                     _diceButtonRects.Add(rect);
                     _diceButtons.Add(dice);
                 }
@@ -965,6 +973,14 @@ public class BattleManager
                     bool hasIcon = _iconProvider?.TryDrawIcon(spriteBatch, dice, iconRect, enabled ? Color.White : Color.Gray) ?? false;
                     int textX = rect.X + 10 + (hasIcon ? iconSize + 6 : 0);
                     spriteBatch.DrawString(font, dice.Name, new Vector2(textX, rect.Y + 8), enabled ? Color.White : Color.Gray);
+                    
+                    // 显示计数器（如果有）
+                    if (dice is ICounterDice counterDice)
+                    {
+                        string counterText = $"[{counterDice.Counter}]";
+                        spriteBatch.DrawString(font, counterText, new Vector2(textX, rect.Y + 26), Color.Orange, 0f, Vector2.Zero, 0.8f, Microsoft.Xna.Framework.Graphics.SpriteEffects.None, 0f);
+                    }
+                    
                     _diceButtonRects.Add(rect);
                     _diceButtons.Add(dice);
                 }
@@ -1148,6 +1164,18 @@ public class BattleManager
                 if (player.GetEquippedDice().Count == 0 && playerState.EquippedDiceNames != null && playerState.EquippedDiceNames.Count > 0)
                 {
                     SyncPlayerDiceEquipment(player, playerState.EquippedDiceNames);
+                }
+                
+                // 同步骰子计数器状态
+                if (playerState.DiceCounters != null && playerState.DiceCounters.Count > 0)
+                {
+                    foreach (var dice in player.GetEquippedDice())
+                    {
+                        if (dice is ICounterDice counterDice && playerState.DiceCounters.ContainsKey(dice.Name))
+                        {
+                            counterDice.Counter = playerState.DiceCounters[dice.Name];
+                        }
+                    }
                 }
             }
         }
@@ -1613,6 +1641,13 @@ public class BattleManager
             bool hasIcon = _iconProvider?.TryDrawIcon(spriteBatch, dice, iconRect, Color.White) ?? false;
             int textX = rect.X + 10 + (hasIcon ? iconSize + 6 : 0);
             spriteBatch.DrawString(font, dice.Name, new Vector2(textX, rect.Y + 8), Color.White);
+            
+            // 显示计数器（如果有）
+            if (dice is ICounterDice counterDice)
+            {
+                string counterText = $"[{counterDice.Counter}]";
+                spriteBatch.DrawString(font, counterText, new Vector2(textX, rect.Y + 26), Color.Orange, 0f, Vector2.Zero, 0.7f, Microsoft.Xna.Framework.Graphics.SpriteEffects.None, 0f);
+            }
 
             // 绘制序号
             if (_plannedDiceSequenceNumbersAD.ContainsKey(dice.Name) && _plannedDiceSequenceNumbersAD[dice.Name] > 0)
@@ -1642,6 +1677,13 @@ public class BattleManager
             bool hasIcon = _iconProvider?.TryDrawIcon(spriteBatch, dice, iconRect, Color.White) ?? false;
             int textX = rect.X + 10 + (hasIcon ? iconSize + 6 : 0);
             spriteBatch.DrawString(font, dice.Name, new Vector2(textX, rect.Y + 8), Color.White);
+            
+            // 显示计数器（如果有）
+            if (dice is ICounterDice counterDice)
+            {
+                string counterText = $"[{counterDice.Counter}]";
+                spriteBatch.DrawString(font, counterText, new Vector2(textX, rect.Y + 26), Color.Orange, 0f, Vector2.Zero, 0.7f, Microsoft.Xna.Framework.Graphics.SpriteEffects.None, 0f);
+            }
 
             // 绘制序号
             if (_plannedDiceSequenceNumbersPD.ContainsKey(dice.Name) && _plannedDiceSequenceNumbersPD[dice.Name] > 0)

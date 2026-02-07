@@ -15,7 +15,13 @@ public class ErrorDice : Dice, IManualRollDice
     private int? _pendingManualRoll;
 
     public ErrorDice()
-        : base("error_dice", "ERROR", "Debug", DiceUsageType.Both)
+        : base(
+            id: "error_dice",
+            name: "ERROR",
+            description: "Debug",
+            usageType: DiceUsageType.Both,
+            function: "每次使用前可手动输入点数（无上限），否则按D6规则掷出1-6。支持主动和被动使用（调试专用）"
+        )
     {
         _random = new Random();
         DisplayColor = Color.LightGray;

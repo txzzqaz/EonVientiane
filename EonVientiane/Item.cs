@@ -73,6 +73,7 @@ public class Item
     public string Id { get; set; }
     public string Name { get; set; }
     public string Description { get; set; }
+    public string Function { get; set; } // 功能说明
     public ItemType Type { get; set; }
     public int MaxStackSize { get; set; } = 1;
     public Color DisplayColor { get; set; } = Color.White;
@@ -85,11 +86,12 @@ public class Item
     /// </summary>
     public virtual bool IsEquippable => false;
     
-    public Item(string id, string name, string description, ItemType type, string creator = "qaz")
+    public Item(string id, string name, string description, ItemType type, string creator = "qaz", string function = "")
     {
         Id = id;
         Name = name;
         Description = description;
+        Function = function;
         Type = type;
         Creator = creator;
     }
@@ -107,7 +109,7 @@ public class Item
     /// </summary>
     public virtual Item Clone()
     {
-        return new Item(Id, Name, Description, Type, Creator)
+        return new Item(Id, Name, Description, Type, Creator, Function)
         {
             MaxStackSize = MaxStackSize,
             DisplayColor = DisplayColor,
@@ -140,8 +142,8 @@ public class Equipment : Item
     
     public override bool IsEquippable => true;
     
-    public Equipment(string id, string name, string description, EquipmentType equipmentType, string creator = "qaz")
-        : base(id, name, description, ItemType.Equipment, creator)
+    public Equipment(string id, string name, string description, EquipmentType equipmentType, string creator = "qaz", string function = "")
+        : base(id, name, description, ItemType.Equipment, creator, function)
     {
         EquipmentType = equipmentType;
         MaxStackSize = 1; // 装备不可堆叠
@@ -149,7 +151,7 @@ public class Equipment : Item
     
     public override Item Clone()
     {
-        return new Equipment(Id, Name, Description, EquipmentType, Creator)
+        return new Equipment(Id, Name, Description, EquipmentType, Creator, Function)
         {
             Attack = Attack,
             Defense = Defense,
@@ -284,8 +286,8 @@ public abstract class Dice : Equipment
 {
     public DiceUsageType UsageType { get; set; }
     
-    protected Dice(string id, string name, string description, DiceUsageType usageType, string creator = "qaz")
-        : base(id, name, description, EquipmentType.Dice, creator)
+    protected Dice(string id, string name, string description, DiceUsageType usageType, string creator = "qaz", string function = "")
+        : base(id, name, description, EquipmentType.Dice, creator, function)
     {
         UsageType = usageType;
         IconAsset = $"Icons/Dice/{id}"; // 默认骰子图标路径（若不存在则不显示）
@@ -398,8 +400,8 @@ public class DefenseResult
 /// </summary>
 public abstract class Accessory : Equipment
 {
-    protected Accessory(string id, string name, string description, string creator = "qaz")
-        : base(id, name, description, EquipmentType.Accessory, creator)
+    protected Accessory(string id, string name, string description, string creator = "qaz", string function = "")
+        : base(id, name, description, EquipmentType.Accessory, creator, function)
     {
     }
     

@@ -66,14 +66,27 @@ public class BattleHistoryManager
     public void AddBattleRecord(BattleRecord record)
     {
         if (record == null)
+        {
+            Console.WriteLine("[BattleHistoryManager] ERROR: Cannot add null battle record");
             return;
+        }
 
-        // 使用时间戳作为记录ID
-        record.RecordId = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        _battleRecords.Add(record);
+        try
+        {
+            // 使用时间戳作为记录ID
+            record.RecordId = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            _battleRecords.Add(record);
 
-        // 立即保存到文件
-        SaveBattleHistory();
+            Console.WriteLine($"[BattleHistoryManager] Battle record added: ID={record.RecordId}, Player={record.LocalPlayerName}, Opponent={record.OpponentName}, Result={record.Result}, Duration={record.DurationSeconds}s, Rounds={record.TotalRounds}");
+
+            // 立即保存到文件
+            SaveBattleHistory();
+            Console.WriteLine($"[BattleHistoryManager] Total battle records: {_battleRecords.Count}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BattleHistoryManager] ERROR adding battle record: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -85,10 +98,12 @@ public class BattleHistoryManager
         {
             string json = JsonSerializer.Serialize(_battleRecords, _jsonOptions);
             File.WriteAllText(_battleHistoryFile, json);
+            Console.WriteLine($"[BattleHistoryManager] Battle history saved successfully to: {_battleHistoryFile}");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"保存对战历史失败: {ex.Message}");
+            Console.WriteLine($"[BattleHistoryManager] ERROR saving battle history: {ex.GetType().Name}: {ex.Message}");
+            Console.WriteLine($"[BattleHistoryManager] File path: {_battleHistoryFile}");
         }
     }
 

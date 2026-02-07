@@ -17,7 +17,13 @@ public class FeatheredDice : Dice, ICounterDice
     public int Counter { get; set; } = 0; // 计数器，游戏结束后清空
     
     public FeatheredDice()
-        : base("feathered_dice", "飞羽", "一小步.", DiceUsageType.Passive)
+        : base(
+            id: "feathered_dice",
+            name: "飞羽",
+            description: "一小步.",
+            usageType: DiceUsageType.Passive,
+            function: "掷(计数器+ATKP×2)面骰获得AVOP（闪避点数）。ATKP > AVOP则闪避成功无伤；ATKP ≤ AVOP则闪避失败受全部伤害。每次使用后计数器临时+1（游戏结束清空）"
+        )
     {
         _random = new Random();
         DisplayColor = Color.LightCyan;
@@ -55,7 +61,7 @@ public class FeatheredDice : Dice, ICounterDice
         int actualDamage;
         string message;
         
-        if (attackDamage > avop)
+        if (attackDamage >= avop)
         {
             // 闪避成功
             actualDamage = 0;

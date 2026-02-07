@@ -15,7 +15,12 @@ public class AscensionProofAccessory : Accessory
     public int ConsecutiveWins { get; set; } = 0; // 连续胜利次数
     
     public AscensionProofAccessory()
-        : base("ascension_proof", "飞升之证", "终局？")
+        : base(
+            id: "ascension_proof",
+            name: "飞升之证",
+            description: "终局？",
+            function: "无视所有HP加成，强制HP=0且无法获得HP。每连续赢5场计数器永久+1。对局开始获得等于计数器数量的护盾层，每层可抵挡一次未完全防御的攻击"
+        )
     {
         Health = 0;
         DisplayColor = Color.Gold;

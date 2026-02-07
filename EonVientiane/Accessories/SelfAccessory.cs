@@ -21,7 +21,12 @@ namespace EonVientiane;
 public class SelfAccessory : Accessory
 {
     public SelfAccessory()
-        : base("self_accessory", "自我", "这就是你自己")
+        : base(
+            id: "self_accessory",
+            name: "自我",
+            description: "这就是你自己",
+            function: "对局开始时提供10点生命值（HP）。若当前不能获得HP则无效"
+        )
     {
         Health = 10;
         DisplayColor = Color.LightGreen;

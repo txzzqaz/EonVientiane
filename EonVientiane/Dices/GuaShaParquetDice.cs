@@ -22,7 +22,14 @@ public class GuaShaParquetDice : Dice
     private Random _random;
     
     public GuaShaParquetDice()
-        : base("guasha_parquet", "刮痧师傅", "驽马十驾，功在不舍", DiceUsageType.Active, "yyzh")
+        : base(
+            id: "guasha_parquet",
+            name: "刮痧师傅",
+            description: "驽马十驾，功在不舍",
+            usageType: DiceUsageType.Active,
+            creator: "yyzh",
+            function: "掷六面骰获得ATKP。若对方被动防御未完全格挡伤害：根据造成伤害次数进行(6-MITP)面骰投掷，得到额外ATKP，直接再次攻击（跳过对方PD回合）"
+        )
     {
         _random = new Random();
         DisplayColor = Color.Orange;

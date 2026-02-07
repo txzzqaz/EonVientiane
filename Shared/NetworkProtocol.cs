@@ -373,6 +373,8 @@ public class AchievementDto
     public string Id { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public string LockedHint { get; set; } = string.Empty; // 未解锁时显示的提示
+    public string UnlockedHint { get; set; } = string.Empty; // 已解锁时显示的解锁方式
     public string Icon { get; set; } = string.Empty;
     public int Progress { get; set; }
     public int RequiredProgress { get; set; }
@@ -454,6 +456,7 @@ public class BattlePlayerStateDto
     public int ShieldLayers { get; set; }
     public bool IsDead { get; set; }
     public List<string> EquippedDiceNames { get; set; } = new();
+    public Dictionary<string, int> DiceCounters { get; set; } = new(); // 骰子名称 -> 计数器值
 }
 
 /// <summary>
@@ -539,6 +542,8 @@ public class PlayerBattleStats
     public TimeSpan TotalActionTime { get; set; } // 总行动时间
     public Dictionary<string, int> DiceUsageCount { get; set; } = new(); // 骰子使用次数统计
     public bool IsMVP { get; set; }             // 是否MVP
+    public bool HasWandererHeart { get; set; }  // 是否装备了漫游者之心
+    public bool WandererHeartTriggered { get; set; } // 漫游者之心是否触发过增益
 }
 
 /// <summary>

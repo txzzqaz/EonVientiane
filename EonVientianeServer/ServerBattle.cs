@@ -90,6 +90,9 @@ public class ServerBattle
     private Dictionary<string, int> _playerFeatheredDodgeStreak; // 每个玩家使用飞羽闪避的连续成功次数
     private Dictionary<string, bool> _playerLastDefenseWasFeatheredSuccess; // 上一次防御是否为飞羽成功闪避
     
+    // 成就追踪 - 漫游者之心触发检测（用于"我在哪"成就）
+    private Dictionary<string, bool> _playerWandererHeartTriggered; // 追踪每个玩家的漫游者之心是否触发过增益
+    
     // 战斗统计追踪
     private Dictionary<string, int> _playerDamageDealt;    // 每个玩家造成的总伤害
     private Dictionary<string, int> _playerDamageTaken;    // 每个玩家承受的总伤害
@@ -129,6 +132,7 @@ public class ServerBattle
         _playerRoundSlowestActionTime = new Dictionary<string, TimeSpan>();
         _playerFeatheredDodgeStreak = new Dictionary<string, int>();
         _playerLastDefenseWasFeatheredSuccess = new Dictionary<string, bool>();
+        _playerWandererHeartTriggered = new Dictionary<string, bool>();
         
         // 初始化战斗统计字典
         _playerDamageDealt = new Dictionary<string, int>();
@@ -149,6 +153,7 @@ public class ServerBattle
             _playerDamageDealt[client.UserId] = 0;
             _playerDamageTaken[client.UserId] = 0;
             _playerDamageBlocked[client.UserId] = 0;
+            _playerWandererHeartTriggered[client.UserId] = false;
             _playerAttackCount[client.UserId] = 0;
             _playerDefenseCount[client.UserId] = 0;
             _playerKillCount[client.UserId] = 0;
@@ -559,9 +564,10 @@ public class ServerBattle
         }
         
         // 应用漫游者之心倍率（基于本回合最慢的一步时间）
-        int finalAttackPower = ApplyWandererHeartMultiplier(attacker, boostedAttackPower);
-        if (finalAttackPower != boostedAttackPower)
+        int finalAttackPower = ApplyWandererHeartMultiplier(attacker, boostedAttackPower, out bool wandererTriggered);
+        if (wandererTriggered)
         {
+            _playerWandererHeartTriggered[playerId] = true;
             AddLog($"漫游者之心触发！根据回合内最慢一步({_playerRoundSlowestActionTime[playerId].TotalSeconds:F2}秒)，攻击力调整为{finalAttackPower}");
         }
         
@@ -840,9 +846,13 @@ public class ServerBattle
     /// </summary>
     private void EndBattle(PlayerCamp winner)
     {
+        Console.WriteLine($"[Server.Battle] EndBattle called - Winner: {winner}");
+        
         IsBattleOver = true;
         WinnerCamp = winner;
         CurrentState = BattleState.BattleEnd;
+        
+        Console.WriteLine($"[Server.Battle] IsBattleOver set to true, CurrentState: {CurrentState}");
         
         // 清空当前行动玩家信息
         CurrentActionPlayerId = null;
@@ -872,6 +882,14 @@ public class ServerBattle
         
         foreach (var player in _players.Values)
         {
+            // 检查玩家是否装备了漫游者之心
+            bool hasWandererHeart = player.GetEquippedAccessories()
+                .OfType<WandererHeartAccessory>()
+                .Any();
+            
+            // 检查漫游者之心是否触发过
+            bool wandererTriggered = _playerWandererHeartTriggered.GetValueOrDefault(player.PlayerId, false);
+            
             var playerStats = new PlayerBattleStats
             {
                 PlayerId = player.PlayerId,
@@ -885,7 +903,9 @@ public class ServerBattle
                 KillCount = _playerKillCount.GetValueOrDefault(player.PlayerId, 0),
                 TotalActionTime = GetPlayerTotalActionTime(player.PlayerId),
                 DiceUsageCount = _playerDiceUsage.GetValueOrDefault(player.PlayerId, new Dictionary<string, int>()),
-                IsMVP = player.PlayerId == mvpPlayerId
+                IsMVP = player.PlayerId == mvpPlayerId,
+                HasWandererHeart = hasWandererHeart,
+                WandererHeartTriggered = wandererTriggered
             };
             
             stats.Add(playerStats);
@@ -1253,8 +1273,11 @@ public class ServerBattle
     /// 应用漫游者之心的攻击倍率加成
     /// 根据本回合最慢的一步选择时间来调整攻击力
     /// </summary>
-    private int ApplyWandererHeartMultiplier(Player attacker, int baseAttackPower)
+    /// <param name="triggered">输出参数，表示是否触发了增益（倍率>1.0）</param>
+    private int ApplyWandererHeartMultiplier(Player attacker, int baseAttackPower, out bool triggered)
     {
+        triggered = false;
+        
         var accessory = attacker.GetEquippedAccessories()
             .OfType<WandererHeartAccessory>()
             .FirstOrDefault();
@@ -1273,6 +1296,13 @@ public class ServerBattle
         
         // 应用倍率
         int finalAttackPower = (int)Math.Round(baseAttackPower * multiplier);
+        
+        // 如果倍率大于1.0，说明触发了增益
+        if (multiplier > 1.0)
+        {
+            triggered = true;
+        }
+        
         return finalAttackPower;
     }
     

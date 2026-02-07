@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace EonVientiane;
 
@@ -112,4 +113,15 @@ public class BattleRecord
     /// <summary>
     /// 战斗总回合数
     /// </summary>
-    public int TotalRounds { get; set; }}
+    public int TotalRounds { get; set; }
+    
+    /// <summary>
+    /// Team1的所有玩家名称列表
+    /// </summary>
+    public List<string> Team1Players { get; set; } = new List<string>();
+    
+    /// <summary>
+    /// Team2的所有玩家名称列表
+    /// </summary>
+    public List<string> Team2Players { get; set; } = new List<string>();
+}

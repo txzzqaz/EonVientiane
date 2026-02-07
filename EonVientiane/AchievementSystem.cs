@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using EonVientiane.Shared;
 
 #nullable enable
@@ -20,6 +21,8 @@ public class AchievementSystem
         public string Id { get; set; } = string.Empty;
         public string Name { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
+        public string LockedHint { get; set; } = string.Empty; // 未解锁时显示的提示
+        public string UnlockedHint { get; set; } = string.Empty; // 已解锁时显示的解锁方式
         public string Icon { get; set; } = string.Empty;
         public int Progress { get; set; } // 0-100
         public int RequiredProgress { get; set; } // 完成条件的目标值
@@ -34,6 +37,8 @@ public class AchievementSystem
                 Id = Id,
                 Name = Name,
                 Description = Description,
+                LockedHint = LockedHint,
+                UnlockedHint = UnlockedHint,
                 Icon = Icon,
                 Progress = Progress,
                 RequiredProgress = RequiredProgress,
@@ -73,6 +78,7 @@ public class AchievementSystem
     private Dictionary<string, Achievement> _serverAchievements = new(); // 缓存服务器数据
     private string _userId = string.Empty;
     private InventoryManager _inventoryManager;
+    private MultiplayerLobbyManager? _lobbyManager;
     private DateTime _lastServerSync = DateTime.MinValue;
 
     // 事件：成就完成时触发
@@ -93,12 +99,57 @@ public class AchievementSystem
     }
 
     /// <summary>
+    /// 设置多人大厅管理器，用于网络同步成就
+    /// </summary>
+    public void SetLobbyManager(MultiplayerLobbyManager lobbyManager)
+    {
+        _lobbyManager = lobbyManager;
+        Console.WriteLine("[Client] AchievementSystem LobbyManager set for network sync");
+    }
+
+    /// <summary>
     /// 设置用户ID
     /// </summary>
     public void SetUserId(string userId)
     {
         _userId = userId;
         Console.WriteLine($"[Client] AchievementSystem userId set to '{userId}'");
+    }
+
+    /// <summary>
+    /// 应用服务器完成通知到本地成就（不触发反向同步）
+    /// </summary>
+    public void ApplyServerCompletionNotification(string achievementId)
+    {
+        if (!_achievements.TryGetValue(achievementId, out var achievement))
+        {
+            Console.WriteLine($"[AchievementSystem] WARNING: Cannot apply completion - achievement '{achievementId}' not found");
+            return;
+        }
+
+        if (achievement.IsCompleted)
+        {
+            Console.WriteLine($"[AchievementSystem] Achievement '{achievementId}' already marked as completed");
+            return;
+        }
+
+        // 直接更新状态，不触发服务器同步
+        achievement.Progress = achievement.RequiredProgress;
+        achievement.IsCompleted = true;
+        achievement.CompletedTime = DateTime.UtcNow;
+        
+        // 同时更新服务器缓存
+        if (_serverAchievements.TryGetValue(achievementId, out var serverAchievement))
+        {
+            serverAchievement.Progress = achievement.Progress;
+            serverAchievement.IsCompleted = true;
+            serverAchievement.CompletedTime = achievement.CompletedTime;
+        }
+
+        Console.WriteLine($"[AchievementSystem] Applied server completion notification for '{achievementId}' ({achievement.Name})");
+        
+        // 触发本地完成事件（但不触发奖励发放，因为服务器已经处理了）
+        AchievementCompleted?.Invoke(achievement);
     }
 
     /// <summary>
@@ -115,15 +166,34 @@ public class AchievementSystem
     /// </summary>
     public void UpdateProgress(string achievementId, int progressDelta)
     {
+        if (string.IsNullOrEmpty(achievementId))
+        {
+            Console.WriteLine($"[AchievementSystem] ERROR: Cannot update progress - achievement ID is null or empty");
+            return;
+        }
+
+        if (progressDelta < 0)
+        {
+            Console.WriteLine($"[AchievementSystem] WARNING: Negative progress delta for '{achievementId}': {progressDelta}");
+            return;
+        }
+
         if (!_achievements.TryGetValue(achievementId, out var achievement))
         {
-            Console.WriteLine($"[Client] Achievement '{achievementId}' not found locally");
+            Console.WriteLine($"[AchievementSystem] WARNING: Achievement '{achievementId}' not found in achievements dictionary");
+            Console.WriteLine($"[AchievementSystem] Available achievements: {string.Join(", ", _achievements.Keys)}");
+            return;
+        }
+
+        if (achievement == null)
+        {
+            Console.WriteLine($"[AchievementSystem] ERROR: Achievement object for '{achievementId}' is null");
             return;
         }
 
         if (achievement.IsCompleted)
         {
-            Console.WriteLine($"[Client] Achievement '{achievementId}' already completed");
+            Console.WriteLine($"[AchievementSystem] INFO: Achievement '{achievementId}' is already completed, skipping update");
             return;
         }
 
@@ -131,11 +201,33 @@ public class AchievementSystem
         achievement.Progress += progressDelta;
         achievement.Progress = Math.Min(achievement.Progress, achievement.RequiredProgress);
 
-        Console.WriteLine($"[Client] Updated achievement '{achievementId}': {previousProgress} -> {achievement.Progress}/{achievement.RequiredProgress}");
+        Console.WriteLine($"[AchievementSystem] Updated achievement '{achievementId}': {previousProgress} + {progressDelta} -> {achievement.Progress}/{achievement.RequiredProgress} ({achievement.Name})");
 
-        if (achievement.Progress >= achievement.RequiredProgress)
+        if (achievement.Progress >= achievement.RequiredProgress && !achievement.IsCompleted)
         {
+            Console.WriteLine($"[AchievementSystem] Achievement '{achievementId}' progress target reached!");
             CompleteAchievement(achievementId);
+        }
+
+        // 异步同步到服务器
+        if (_lobbyManager != null)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    Console.WriteLine($"[AchievementSystem] Syncing achievement '{achievementId}' to server");
+                    await _lobbyManager.UpdateAchievementAsync(achievementId, progressDelta);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[AchievementSystem] Failed to sync achievement to server: {ex.Message}");
+                }
+            });
+        }
+        else
+        {
+            Console.WriteLine($"[AchievementSystem] WARNING: LobbyManager not set, achievement '{achievementId}' will not be synced to server");
         }
     }
 
@@ -187,44 +279,13 @@ public class AchievementSystem
     {
         return itemId switch
         {
-            "item_reward_1" => new Equipment("item_reward_1", "初心者之剑", "首次胜利的纪念品", EquipmentType.Dice)
+            "feathered_dice" => new FeatheredDice()
             {
-                MaxStackSize = 1,
-                Attack = 5
+                MaxStackSize = 1
             },
-            "item_reward_2" => new Equipment("item_reward_2", "战神之盾", "十场战斗的证明", EquipmentType.Accessory)
+            "ascension_proof" => new AscensionProofAccessory()
             {
-                MaxStackSize = 1,
-                Defense = 10
-            },
-            "item_reward_3" => new Equipment("item_reward_3", "收集家之冠", "装备收集的奖励", EquipmentType.Accessory)
-            {
-                MaxStackSize = 1,
-                Attack = 3,
-                Defense = 3
-            },
-            "item_reward_4" => new Equipment("item_reward_4", "无敌甲胄", "无死亡战斗的荣誉", EquipmentType.Accessory)
-            {
-                MaxStackSize = 1,
-                Defense = 15
-            },
-            "item_reward_5" => new Equipment("item_reward_5", "时间护符", "游戏时间的纪念", EquipmentType.Accessory)
-            {
-                MaxStackSize = 1,
-                Attack = 2,
-                Defense = 2
-            },
-            "feathered_dice" => new Equipment("feathered_dice", "羽毛骰", "成就奖励", EquipmentType.Dice)
-            {
-                MaxStackSize = 1,
-                Attack = 8,
-                Defense = 2
-            },
-            "ascension_proof" => new Equipment("ascension_proof", "晋升凭证", "成就奖励", EquipmentType.Accessory)
-            {
-                MaxStackSize = 1,
-                Attack = 5,
-                Defense = 5
+                MaxStackSize = 1
             },
             "holy_fire" => new HolyFireAccessory()
             {
@@ -308,6 +369,8 @@ public class AchievementSystem
                     Id = dto.Id,
                     Name = dto.Name,
                     Description = dto.Description,
+                    LockedHint = dto.LockedHint,
+                    UnlockedHint = dto.UnlockedHint,
                     Icon = dto.Icon,
                     Progress = dto.Progress,
                     RequiredProgress = dto.RequiredProgress,

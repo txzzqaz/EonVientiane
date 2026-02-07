@@ -11,7 +11,12 @@ namespace EonVientiane;
 public class ForesightAccessory : Accessory
 {
     public ForesightAccessory()
-        : base("foresight", "预见", "指向唯一的胜利")
+        : base(
+            id: "foresight",
+            name: "预见",
+            description: "指向唯一的胜利",
+            function: "允许在对方行动完成前提前规划后续主动回合的行动，不占用行动时间。启用提前规划功能"
+        )
     {
         DisplayColor = Color.Magenta;
         AccessorySlotsCost = 3;

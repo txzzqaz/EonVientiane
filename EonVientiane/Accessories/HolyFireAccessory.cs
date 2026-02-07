@@ -11,7 +11,12 @@ namespace EonVientiane;
 public class HolyFireAccessory : Accessory
 {
     public HolyFireAccessory()
-        : base("holy_fire", "圣火", "沧海桑田，然后永恒")
+        : base(
+            id: "holy_fire",
+            name: "圣火",
+            description: "沧海桑田，然后永恒",
+            function: "对局内对手每步选择若超过0.5秒，自动选择跳过。限制对手反应时间"
+        )
     {
         DisplayColor = Color.OrangeRed;
         AccessorySlotsCost = 5;

@@ -267,14 +267,19 @@ public class MultiplayerLobbyManager
     /// </summary>
     public async void LeaveRoom()
     {
+        Console.WriteLine($"[MultiplayerLobbyManager] LeaveRoom called, current state: {_state}");
+        
         if (_state != LobbyState.InRoom)
         {
             _statusMessage = "未在房间中";
+            Console.WriteLine($"[MultiplayerLobbyManager] Cannot leave room - not in room (current state: {_state})");
             return;
         }
             
         _statusMessage = "Leaving room...";
+        Console.WriteLine($"[MultiplayerLobbyManager] Sending leave room request");
         await _lobbyManager.LeaveRoomAsync();
+        Console.WriteLine($"[MultiplayerLobbyManager] Leave room request sent");
     }
 
     /// <summary>

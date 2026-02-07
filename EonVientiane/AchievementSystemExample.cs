@@ -69,10 +69,6 @@ public class AchievementSystemExample
             Console.WriteLine($"✅ 成就完成: {achievement.Name}");
         };
         
-        // 更新 "首次胜利" 成就进度
-        Console.WriteLine("更新首次胜利成就...");
-        achievementSystem.UpdateProgress("first_victory", 1);
-        
         // 更新 "战斗好手" 成就进度
         Console.WriteLine("更新战斗好手成就...");
         for (int i = 0; i < 10; i++)
@@ -95,10 +91,10 @@ public class AchievementSystemExample
         achievementSystem.SetUserId("user123");
         
         // 更新一些成就
-        achievementSystem.UpdateProgress("first_victory", 1);
+        achievementSystem.UpdateProgress("blitz_victory", 1);
         
         // 获取特定成就
-        var firstVictory = achievementSystem.GetAchievement("first_victory");
+        var firstVictory = achievementSystem.GetAchievement("blitz_victory");
         
         if (firstVictory != null)
         {
@@ -129,8 +125,8 @@ public class AchievementSystemExample
         achievementSystem.SetUserId("user123");
         
         // 完成一些成就
-        achievementSystem.UpdateProgress("first_victory", 1);
-        achievementSystem.UpdateProgress("battle_master", 10);
+        achievementSystem.UpdateProgress("blitz_victory", 1);
+        achievementSystem.UpdateProgress("perfect_victory", 1);
         
         // 获取已完成的成就
         var completedAchievements = achievementSystem.GetCompletedAchievements();
@@ -153,7 +149,7 @@ public class AchievementSystemExample
         achievementSystem.SetUserId("user123");
         
         // 更新本地成就
-        achievementSystem.UpdateProgress("first_victory", 1);
+        achievementSystem.UpdateProgress("blitz_victory", 1);
         
         // 导出成就数据用于服务端保存
         var achievementData = achievementSystem.ExportToServer();
@@ -205,7 +201,7 @@ public class AchievementSystemExample
         
         // 1. 玩家赢得战斗
         Console.WriteLine("场景1: 玩家赢得第一场战斗");
-        achievementSystem.UpdateProgress("first_victory", 1);
+        achievementSystem.UpdateProgress("blitz_victory", 1);
         Console.WriteLine();
         
         // 2. 玩家收集物品

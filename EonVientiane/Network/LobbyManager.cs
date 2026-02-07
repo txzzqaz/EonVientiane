@@ -386,11 +386,19 @@ public class LobbyManager
     /// </summary>
     private void HandleBattleEnd(NetworkMessage message)
     {
+        Console.WriteLine($"[Network.LobbyManager] HandleBattleEnd called");
         var notification = message.GetData<BattleEndNotification>();
         if (notification != null)
         {
-            System.Diagnostics.Debug.WriteLine($"[LobbyManager] Battle ended: {notification.WinnerCamp}");
+            Console.WriteLine($"[Network.LobbyManager] Battle ended: WinnerCamp={notification.WinnerCamp}, TotalRounds={notification.TotalRounds}");
+            Console.WriteLine($"[Network.LobbyManager] Player stats count: {notification.PlayerStats?.Count ?? 0}");
+            Console.WriteLine($"[Network.LobbyManager] Invoking BattleEnded event...");
             BattleEnded?.Invoke(notification);
+            Console.WriteLine($"[Network.LobbyManager] BattleEnded event invoked");
+        }
+        else
+        {
+            Console.WriteLine($"[Network.LobbyManager] ERROR: BattleEndNotification is null");
         }
     }
     

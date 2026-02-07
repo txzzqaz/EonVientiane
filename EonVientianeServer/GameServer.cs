@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using EonVientiane.Shared;
 using EonVientiane;
+using EonVientianeServer.Achievements;
 
 namespace EonVientianeServer;
 
@@ -1063,21 +1064,32 @@ public class GameServer
         // 定期更新战斗状态，每秒调用一次
         var battleUpdateInterval = 1000; // 毫秒
         
-        while (!battle.IsBattleOver && room.Status == RoomStatus.InGame)
+        Console.WriteLine($"[Server] Battle loop started for room {room.RoomId}");
+        
+        while (room.Status == RoomStatus.InGame)
         {
             try
             {
                 // 更新战斗逻辑
-                battle.Update();
+                Console.WriteLine($"[Server] Battle loop iteration - IsBattleOver={battle.IsBattleOver}, RoomStatus={room.Status}");
+                
+                if (!battle.IsBattleOver)
+                {
+                    battle.Update();
+                    Console.WriteLine($"[Server] After Update() - IsBattleOver={battle.IsBattleOver}");
+                }
                 
                 // 如果战斗结束，先发送一次最终状态，然后发送结束通知
                 if (battle.IsBattleOver)
                 {
+                    Console.WriteLine($"[Server] ===== Battle Over Detected! Sending notifications... =====");
+                    
                     // 发送最终的战斗状态（显示战斗已结束）
                     await BroadcastBattleStateAsync(room, battle);
                     
                     // 广播战斗结束
                     await BroadcastBattleEndAsync(room, battle);
+                    Console.WriteLine($"[Server] Battle end notifications sent, breaking loop");
                     break;
                 }
                 
@@ -1088,10 +1100,12 @@ public class GameServer
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Error] Battle loop error: {ex.Message}");
+                Console.WriteLine($"[Error] Battle loop error: {ex.Message}\n{ex.StackTrace}");
                 break;
             }
         }
+        
+        Console.WriteLine($"[Server] Battle loop ended - IsBattleOver={battle.IsBattleOver}, RoomStatus={room.Status}");
     }
     
     /// <summary>
@@ -1120,6 +1134,15 @@ public class GameServer
         // 添加玩家状态
         foreach (var player in battle.GetAllPlayers())
         {
+            var diceCounters = new Dictionary<string, int>();
+            foreach (var dice in player.GetEquippedDice())
+            {
+                if (dice is ICounterDice counterDice)
+                {
+                    diceCounters[dice.Name] = counterDice.Counter;
+                }
+            }
+            
             notification.Players.Add(new BattlePlayerStateDto
             {
                 PlayerId = player.PlayerId,
@@ -1129,7 +1152,8 @@ public class GameServer
                 MaxHP = player.MaxHP,
                 ShieldLayers = player.ShieldLayers,
                 IsDead = player.IsDead,
-                EquippedDiceNames = player.GetEquippedDice().Select(d => d.Name).ToList()
+                EquippedDiceNames = player.GetEquippedDice().Select(d => d.Name).ToList(),
+                DiceCounters = diceCounters
             });
         }
         
@@ -1273,9 +1297,24 @@ public class GameServer
     /// </summary>
     private async Task BroadcastBattleEndAsync(GameRoom room, ServerBattle battle)
     {
+        System.Console.WriteLine($"[Server] ===== BroadcastBattleEndAsync: WinnerCamp={battle.WinnerCamp} =====");
+        
         // 生成战斗统计和奖励
         var playerStats = battle.GenerateBattleStats();
         var playerRewards = battle.GenerateBattleRewards();
+        
+        // 调试：打印生成的 PlayerStats
+        System.Console.WriteLine($"[Server] DEBUG: Generated {playerStats?.Count ?? 0} PlayerStats");
+        if (playerStats != null && playerStats.Count > 0)
+        {
+            foreach (var stat in playerStats)
+            {
+                System.Console.WriteLine($"[Server] DEBUG: PlayerStat - PlayerId={stat.PlayerId}, PlayerName={stat.PlayerName}, TeamId={stat.TeamId}");
+            }
+        }
+        
+        var playerCount = room.Players.Count();
+        System.Console.WriteLine($"[Server] Sending BattleEnd to {playerCount} players");
         
         var notification = new BattleEndNotification
         {
@@ -1291,6 +1330,15 @@ public class GameServer
         
         foreach (var player in battle.GetAllPlayers())
         {
+            var diceCounters = new Dictionary<string, int>();
+            foreach (var dice in player.GetEquippedDice())
+            {
+                if (dice is ICounterDice counterDice)
+                {
+                    diceCounters[dice.Name] = counterDice.Counter;
+                }
+            }
+            
             notification.FinalPlayerStates.Add(new BattlePlayerStateDto
             {
                 PlayerId = player.PlayerId,
@@ -1300,73 +1348,28 @@ public class GameServer
                 MaxHP = player.MaxHP,
                 ShieldLayers = player.ShieldLayers,
                 IsDead = player.IsDead,
-                EquippedDiceNames = player.GetEquippedDice().Select(d => d.Name).ToList()
+                EquippedDiceNames = player.GetEquippedDice().Select(d => d.Name).ToList(),
+                DiceCounters = diceCounters
             });
         }
         
-        // 检查"长考"成就
-        var eligibleForLongThinking = battle.GetPlayersEligibleForLongThinkingAchievement();
-        foreach (var playerId in eligibleForLongThinking)
+        // 使用新的触发器系统检查和更新成就
+        var achievementContext = new AchievementTriggerContext
         {
-            // 更新成就进度（以秒为单位）
-            var opponentTime = battle.GetOpponentTotalActionTime(playerId);
-            var (success, isCompleted, currentProgress, error) = _achievementManager.UpdateAchievementProgress(
-                playerId, 
-                "long_thinking", 
-                (int)opponentTime.TotalSeconds
-            );
-            
-            if (success && isCompleted)
-            {
-                Console.WriteLine($"[Server] Player {playerId} completed 'long_thinking' achievement!");
-                // 添加到奖励中
-                var reward = playerRewards.FirstOrDefault(r => r.PlayerId == playerId);
-                if (reward != null && !reward.AchievementsUnlocked.Contains("long_thinking"))
-                {
-                    reward.AchievementsUnlocked.Add("long_thinking");
-                }
-            }
-        }
+            Battle = battle,
+            PlayerRewards = playerRewards
+        };
         
-        // 检查"秒了"成就 - 获胜方总行动时间在5秒内
-        var eligibleForBlitzVictory = battle.GetPlayersEligibleForBlitzVictoryAchievement();
-        foreach (var playerId in eligibleForBlitzVictory)
-        {
-            var (success, isCompleted, currentProgress, error) = _achievementManager.UpdateAchievementProgress(
-                playerId,
-                "blitz_victory",
-                1
-            );
-            
-            if (success && isCompleted)
-            {
-                Console.WriteLine($"[Server] Player {playerId} completed 'blitz_victory' achievement!");
-                var reward = playerRewards.FirstOrDefault(r => r.PlayerId == playerId);
-                if (reward != null && !reward.AchievementsUnlocked.Contains("blitz_victory"))
-                {
-                    reward.AchievementsUnlocked.Add("blitz_victory");
-                }
-            }
-        }
+        var completedAchievements = _achievementManager.CheckBattleEndAchievements(achievementContext);
         
-        // 检查"奇迹"成就 - 一局内使用飞羽骰子进行闪避连续成功5次
-        var eligibleForMiracle = battle.GetPlayersEligibleForMiracleAchievement();
-        foreach (var playerId in eligibleForMiracle)
+        // 将完成的成就添加到奖励中
+        foreach (var (playerId, achievementId) in completedAchievements)
         {
-            var (success, isCompleted, currentProgress, error) = _achievementManager.UpdateAchievementProgress(
-                playerId,
-                "miracle",
-                1
-            );
-            
-            if (success && isCompleted)
+            var reward = playerRewards.FirstOrDefault(r => r.PlayerId == playerId);
+            if (reward != null && !reward.AchievementsUnlocked.Contains(achievementId))
             {
-                Console.WriteLine($"[Server] Player {playerId} completed 'miracle' achievement!");
-                var reward = playerRewards.FirstOrDefault(r => r.PlayerId == playerId);
-                if (reward != null && !reward.AchievementsUnlocked.Contains("miracle"))
-                {
-                    reward.AchievementsUnlocked.Add("miracle");
-                }
+                reward.AchievementsUnlocked.Add(achievementId);
+                Console.WriteLine($"[Server] Player {playerId} completed achievement '{achievementId}'!");
             }
         }
 
@@ -1601,10 +1604,65 @@ public class GameServer
             await client.SendMessageAsync(response2);
             Console.WriteLine($"[Server] Achievement update response sent. Completed: {isCompleted}, Progress: {progress}");
             
-            // 如果成就完成，发送完成通知
+            // 如果成就完成，发送完成通知并发放奖励
             if (isCompleted)
             {
                 var rewards = _achievementManager.GetCompletionRewards(request.AchievementId);
+                
+                // 发放奖励物品到玩家库存
+                if (rewards.Count > 0)
+                {
+                    try
+                    {
+                        var inventoryState = _inventoryStore.LoadOrCreate(client.UserId, () => ItemInitializer.GetInitialInventory(client.UserId));
+                        
+                        foreach (var reward in rewards)
+                        {
+                            if (reward.Type == "Item" && !string.IsNullOrEmpty(reward.ItemId))
+                            {
+                                // 检查物品是否已存在
+                                var existingStack = inventoryState.Items.FirstOrDefault(i => i.ItemId == reward.ItemId);
+                                
+                                if (existingStack != null)
+                                {
+                                    // 增加数量
+                                    existingStack.Quantity += reward.Quantity;
+                                    Console.WriteLine($"[Server] Added {reward.Quantity}x {reward.ItemId} to existing stack for user '{client.UserId}'");
+                                }
+                                else
+                                {
+                                    // 创建新堆叠
+                                    var itemInfo = ItemInitializer.GetAllItems().FirstOrDefault(i => i.ItemId == reward.ItemId);
+                                    if (!string.IsNullOrEmpty(itemInfo.ItemName))
+                                    {
+                                        inventoryState.Items.Add(new InventoryStackRecord
+                                        {
+                                            StackId = Guid.NewGuid().ToString("N"),
+                                            ItemId = reward.ItemId,
+                                            ItemName = itemInfo.ItemName,
+                                            Quantity = reward.Quantity,
+                                            IsEquipped = false
+                                        });
+                                        Console.WriteLine($"[Server] Created new stack of {reward.Quantity}x {reward.ItemId} ({itemInfo.ItemName}) for user '{client.UserId}'");
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine($"[Server] Warning: Item '{reward.ItemId}' not found in item database");
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // 保存库存
+                        _inventoryStore.Save(inventoryState);
+                        Console.WriteLine($"[Server] Saved inventory after granting achievement rewards for user '{client.UserId}'");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[Server] Error granting achievement rewards: {ex.Message}");
+                    }
+                }
+                
                 var notification = NetworkMessage.Create(MessageType.AchievementCompleted, new AchievementCompletedNotification
                 {
                     AchievementId = request.AchievementId,
@@ -1630,11 +1688,14 @@ public class GameServer
     /// </summary>
     private string GetAchievementName(string achievementId) => achievementId switch
     {
-        // "first_victory" => "初露锋芒",
-        // "battle_master" => "战斗好手",
-        // "item_collector" => "装备收集家",
-        // "no_death_warrior" => "无敌战士",
-        // "time_traveler" => "时间旅者",
+        "first_defense" => "第一次防御",
+        "perfect_victory" => "绝对碾压",
+        "long_thinking" => "长考",
+        "blitz_victory" => "秒了",
+        "where_am_i" => "我在哪？",
+        "guasha_master" => "刮痧",
+        "miracle" => "奇迹",
+        "absolute_luck" => "绝对幸运",
         _ => "未知成就"
     };
     
