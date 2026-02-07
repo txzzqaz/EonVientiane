@@ -24,7 +24,8 @@ public class GameServer
     private readonly Dictionary<string, GameRoom> _rooms = new();
     private readonly Dictionary<string, CancellationTokenSource> _roomCountdowns = new();
     private readonly UserManager _userManager = new();
-    private readonly InventoryStore _inventoryStore;
+    private readonly WalletManager _walletManager;
+    private readonly WalletInventoryStore _inventoryStore;
     private readonly AchievementManager _achievementManager = new();
     private readonly TimeSpan _gameStartDelay = TimeSpan.FromSeconds(3);
     private readonly object _lock = new();
@@ -43,7 +44,9 @@ public class GameServer
     public GameServer(int port = 7777)
     {
         _port = port;
-        _inventoryStore = new InventoryStore("data/users", _userManager);
+        _walletManager = new WalletManager("data/wallets");
+        _inventoryStore = new WalletInventoryStore(_walletManager, _userManager);
+        Console.WriteLine("[GameServer] 已启用区块链风格钱包系统（RSA-2048加密）");
     }
 
     
@@ -174,6 +177,10 @@ public class GameServer
             
             case MessageType.UserRegister:
                 await HandleUserRegisterAsync(client, message);
+                break;
+            
+            case MessageType.GetPublicKey:
+                await HandleGetPublicKeyAsync(client);
                 break;
             
             case MessageType.GetInitialInventory:
@@ -396,6 +403,36 @@ public class GameServer
             await client.SendMessageAsync(response);
         }
     }
+
+    /// <summary>
+    /// 处理获取公钥请求（用于客户端初始化钱包验证器）
+    /// </summary>
+    private async Task HandleGetPublicKeyAsync(ConnectedClient client)
+    {
+        try
+        {
+            var publicKey = _walletManager.GetPublicKey();
+            var response = NetworkMessage.Create(MessageType.GetPublicKeyResponse, new GetPublicKeyResponse
+            {
+                Success = true,
+                PublicKey = publicKey
+            });
+            
+            await client.SendMessageAsync(response);
+            Console.WriteLine($"[钱包系统] 发送公钥给客户端 {client.PlayerName}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[错误] 获取公钥失败: {ex.Message}");
+            var response = NetworkMessage.Create(MessageType.GetPublicKeyResponse, new GetPublicKeyResponse
+            {
+                Success = false,
+                ErrorMessage = "无法获取公钥"
+            });
+            
+            await client.SendMessageAsync(response);
+        }
+    }
     
     /// <summary>
     /// 处理获取初始背包请求
@@ -439,14 +476,28 @@ public class GameServer
             return;
         }
 
-        // 根据是否为测试账号选择不同的初始化方法
-        var initialFactory = _userManager.IsTestAccount(client.UserId)
-            ? (Func<List<InitialInventoryItem>>)ItemInitializer.GetTestAccountInventory
-            : () => ItemInitializer.GetInitialInventory(client.UserId);
+        try
+        {
+            // 根据是否为测试账号选择不同的初始化方法
+            var initialFactory = _userManager.IsTestAccount(client.UserId)
+                ? (Func<List<InitialInventoryItem>>)ItemInitializer.GetTestAccountInventory
+                : () => ItemInitializer.GetInitialInventory(client.UserId);
+                
+            var state = _inventoryStore.LoadOrCreate(client.UserId, initialFactory);
+            var dto = _inventoryStore.ToDto(state);
             
-        var state = _inventoryStore.LoadOrCreate(client.UserId, initialFactory);
-        var dto = _inventoryStore.ToDto(state);
-        await client.SendMessageAsync(NetworkMessage.Create(MessageType.InventoryState, dto));
+            // 发送背包数据
+            await client.SendMessageAsync(NetworkMessage.Create(MessageType.InventoryState, dto));
+            
+            // 验证钱包完整性（记录日志用）
+            var wallet = _walletManager.LoadOrCreateWallet(client.UserId);
+            Console.WriteLine($"[钱包验证] 用户 {client.UserId}: 已验证 {wallet.Items.Count} 个签名道具");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[错误] 处理背包请求失败: {ex.Message}");
+            await SendErrorAsync(client, "背包加载失败");
+        }
     }
 
     /// <summary>

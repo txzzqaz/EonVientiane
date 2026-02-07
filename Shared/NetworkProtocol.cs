@@ -21,6 +21,8 @@ public enum MessageType
     UserLoginResponse,
     UserRegister,
     UserRegisterResponse,
+    GetPublicKey,
+    GetPublicKeyResponse,
     GetInitialInventory,
     InitialInventoryResponse,
     RequestInventory,
@@ -271,6 +273,23 @@ public class UserRegisterResponse
 {
     public bool Success { get; set; }
     public string? UserId { get; set; }
+    public string? ErrorMessage { get; set; }
+}
+
+/// <summary>
+/// 获取公钥请求（用于初始化客户端钱包验证器）
+/// </summary>
+public class GetPublicKeyRequest
+{
+}
+
+/// <summary>
+/// 获取公钥响应（包含服务器公钥用于RSA验证）
+/// </summary>
+public class GetPublicKeyResponse
+{
+    public bool Success { get; set; }
+    public string? PublicKey { get; set; }
     public string? ErrorMessage { get; set; }
 }
 
