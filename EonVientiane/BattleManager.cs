@@ -1167,18 +1167,24 @@ public class BattleManager
         int barW = 300;
         int barH = 20;
         int topY = 60;
-        var leftPlayer = _currentBattle.Team1Players.FirstOrDefault(p => !p.IsDead);
-        var rightPlayer = _currentBattle.Team2Players.FirstOrDefault(p => !p.IsDead);
+        int barSpacing = 35;
 
-        if (leftPlayer != null && opponents.Contains(leftPlayer))
+        // 添加所有Team1的可攻击对手到碰撞检测列表
+        var team1Opponents = opponents.Where(p => p.Camp == PlayerCamp.Team1).ToList();
+        for (int i = 0; i < team1Opponents.Count; i++)
         {
-            var rect = new Rectangle(panelX + 20 - 10, topY - 10, barW + 20, barH + 40);
-            _opponentRects.Add((leftPlayer, rect));
+            int verticalOffset = i * barSpacing;
+            var rect = new Rectangle(panelX + 20 - 10, topY - 10 + verticalOffset, barW + 20, barH + 40);
+            _opponentRects.Add((team1Opponents[i], rect));
         }
-        if (rightPlayer != null && opponents.Contains(rightPlayer))
+
+        // 添加所有Team2的可攻击对手到碰撞检测列表
+        var team2Opponents = opponents.Where(p => p.Camp == PlayerCamp.Team2).ToList();
+        for (int i = 0; i < team2Opponents.Count; i++)
         {
-            var rect = new Rectangle(panelX + panelWidth - 20 - barW - 10, topY - 10, barW + 20, barH + 40);
-            _opponentRects.Add((rightPlayer, rect));
+            int verticalOffset = i * barSpacing;
+            var rect = new Rectangle(panelX + panelWidth - 20 - barW - 10, topY - 10 + verticalOffset, barW + 20, barH + 40);
+            _opponentRects.Add((team2Opponents[i], rect));
         }
 
         if (mouseState.LeftButton == ButtonState.Pressed && previousMouseState.LeftButton == ButtonState.Released)
@@ -1380,12 +1386,23 @@ public class BattleManager
         int barW = 300;
         int barH = 20;
         int barTop = 60;
+        int barSpacing = 35;  // 血条间距
 
-        var leftPlayer = _currentBattle.Team1Players.FirstOrDefault();
-        var rightPlayer = _currentBattle.Team2Players.FirstOrDefault();
+        // 显示所有Team1玩家的血条
+        var team1AlivePlayer = _currentBattle.Team1Players.Where(p => !p.IsDead).ToList();
+        for (int i = 0; i < team1AlivePlayer.Count; i++)
+        {
+            int verticalOffset = i * barSpacing;
+            DrawPlayerHealthBar(spriteBatch, texture, font, panelX, team1AlivePlayer[i], barW, barH, barTop, true, verticalOffset);
+        }
 
-        DrawPlayerHealthBar(spriteBatch, texture, font, panelX, leftPlayer, barW, barH, barTop, true);
-        DrawPlayerHealthBar(spriteBatch, texture, font, panelX + panelWidth, rightPlayer, barW, barH, barTop, false);
+        // 显示所有Team2玩家的血条
+        var team2AlivePlayer = _currentBattle.Team2Players.Where(p => !p.IsDead).ToList();
+        for (int i = 0; i < team2AlivePlayer.Count; i++)
+        {
+            int verticalOffset = i * barSpacing;
+            DrawPlayerHealthBar(spriteBatch, texture, font, panelX + panelWidth, team2AlivePlayer[i], barW, barH, barTop, false, verticalOffset);
+        }
 
         _battleLogToggleRect = new Rectangle(panelX + panelWidth - 90, 10, 80, 30);
         spriteBatch.Draw(texture, _battleLogToggleRect, Color.DimGray * 0.9f);
@@ -1562,42 +1579,44 @@ public class BattleManager
         return string.Join(" / ", labels);
     }
 
-    private void DrawPlayerHealthBar(SpriteBatch spriteBatch, Texture2D texture, SpriteFont font, int xPosition, Player player, int barW, int barH, int barTop, bool isLeft)
+    private void DrawPlayerHealthBar(SpriteBatch spriteBatch, Texture2D texture, SpriteFont font, int xPosition, Player player, int barW, int barH, int barTop, bool isLeft, int verticalOffset = 0)
     {
         if (player == null)
             return;
 
+        int adjustedBarTop = barTop + verticalOffset;
+
         if (isLeft)
         {
             var leftName = $"{player.PlayerName}";
-            spriteBatch.DrawString(font, leftName, new Vector2(xPosition + 20, barTop - 28), Color.LightBlue);
-            Rectangle hpBG = new Rectangle(xPosition + 20, barTop, barW, barH);
+            spriteBatch.DrawString(font, leftName, new Vector2(xPosition + 20, adjustedBarTop - 28), Color.LightBlue);
+            Rectangle hpBG = new Rectangle(xPosition + 20, adjustedBarTop, barW, barH);
             spriteBatch.Draw(texture, hpBG, Color.Black * 0.5f);
             float pct = player.MaxHP > 0 ? Math.Clamp(player.CurrentHP / (float)player.MaxHP, 0f, 1f) : 0f;
-            Rectangle hpFG = new Rectangle(xPosition + 20, barTop, (int)(barW * pct), barH);
+            Rectangle hpFG = new Rectangle(xPosition + 20, adjustedBarTop, (int)(barW * pct), barH);
             spriteBatch.Draw(texture, hpFG, Color.Green * 0.9f);
-            spriteBatch.DrawString(font, $"{player.CurrentHP}/{player.MaxHP}", new Vector2(xPosition + 25, barTop + 24), Color.White);
+            spriteBatch.DrawString(font, $"{player.CurrentHP}/{player.MaxHP}", new Vector2(xPosition + 25, adjustedBarTop + 24), Color.White);
             if (player.ShieldLayers > 0)
             {
-                spriteBatch.DrawString(font, $"护盾:{player.ShieldLayers}", new Vector2(xPosition + 160, barTop + 24), Color.CornflowerBlue);
+                spriteBatch.DrawString(font, $"护盾:{player.ShieldLayers}", new Vector2(xPosition + 160, adjustedBarTop + 24), Color.CornflowerBlue);
             }
         }
         else
         {
             var rightName = $"{player.PlayerName}";
             Vector2 nameSize = font.MeasureString(rightName);
-            spriteBatch.DrawString(font, rightName, new Vector2(xPosition - 20 - nameSize.X, barTop - 28), Color.LightCoral);
-            Rectangle hpBG = new Rectangle(xPosition - 20 - barW, barTop, barW, barH);
+            spriteBatch.DrawString(font, rightName, new Vector2(xPosition - 20 - nameSize.X, adjustedBarTop - 28), Color.LightCoral);
+            Rectangle hpBG = new Rectangle(xPosition - 20 - barW, adjustedBarTop, barW, barH);
             spriteBatch.Draw(texture, hpBG, Color.Black * 0.5f);
             float pct = player.MaxHP > 0 ? Math.Clamp(player.CurrentHP / (float)player.MaxHP, 0f, 1f) : 0f;
-            Rectangle hpFG = new Rectangle(xPosition - 20 - barW, barTop, (int)(barW * pct), barH);
+            Rectangle hpFG = new Rectangle(xPosition - 20 - barW, adjustedBarTop, (int)(barW * pct), barH);
             spriteBatch.Draw(texture, hpFG, Color.Green * 0.9f);
             Vector2 hpSize = font.MeasureString($"{player.CurrentHP}/{player.MaxHP}");
-            spriteBatch.DrawString(font, $"{player.CurrentHP}/{player.MaxHP}", new Vector2(xPosition - 25 - hpSize.X, barTop + 24), Color.White);
+            spriteBatch.DrawString(font, $"{player.CurrentHP}/{player.MaxHP}", new Vector2(xPosition - 25 - hpSize.X, adjustedBarTop + 24), Color.White);
             if (player.ShieldLayers > 0)
             {
                 Vector2 sSize = font.MeasureString($"护盾:{player.ShieldLayers}");
-                spriteBatch.DrawString(font, $"护盾:{player.ShieldLayers}", new Vector2(xPosition - 30 - sSize.X, barTop + 24), Color.CornflowerBlue);
+                spriteBatch.DrawString(font, $"护盾:{player.ShieldLayers}", new Vector2(xPosition - 30 - sSize.X, adjustedBarTop + 24), Color.CornflowerBlue);
             }
         }
     }
@@ -1730,19 +1749,26 @@ public class BattleManager
             {
                 _opponentRects.Clear();
                 var opponents = _currentBattle.AvailableOpponents;
-                var leftPlayer = _currentBattle.Team1Players.FirstOrDefault(p => !p.IsDead);
-                var rightPlayer = _currentBattle.Team2Players.FirstOrDefault(p => !p.IsDead);
-                if (leftPlayer != null && opponents.Contains(leftPlayer))
+                int barSpacing = 35;
+
+                // 高亮所有Team1的可攻击对手
+                var team1Opponents = opponents.Where(p => p.Camp == PlayerCamp.Team1).ToList();
+                for (int i = 0; i < team1Opponents.Count; i++)
                 {
-                    var rect = new Rectangle(panelX + 20 - 10, barTop - 10, barW + 20, barH + 40);
+                    int verticalOffset = i * barSpacing;
+                    var rect = new Rectangle(panelX + 20 - 10, barTop - 10 + verticalOffset, barW + 20, barH + 40);
                     DrawingHelper.DrawRectangle(spriteBatch, texture, rect, Color.Yellow, 3);
-                    _opponentRects.Add((leftPlayer, rect));
+                    _opponentRects.Add((team1Opponents[i], rect));
                 }
-                if (rightPlayer != null && opponents.Contains(rightPlayer))
+
+                // 高亮所有Team2的可攻击对手
+                var team2Opponents = opponents.Where(p => p.Camp == PlayerCamp.Team2).ToList();
+                for (int i = 0; i < team2Opponents.Count; i++)
                 {
-                    var rect = new Rectangle(panelX + panelWidth - 20 - barW - 10, barTop - 10, barW + 20, barH + 40);
+                    int verticalOffset = i * barSpacing;
+                    var rect = new Rectangle(panelX + panelWidth - 20 - barW - 10, barTop - 10 + verticalOffset, barW + 20, barH + 40);
                     DrawingHelper.DrawRectangle(spriteBatch, texture, rect, Color.Yellow, 3);
-                    _opponentRects.Add((rightPlayer, rect));
+                    _opponentRects.Add((team2Opponents[i], rect));
                 }
             }
         }
