@@ -72,9 +72,9 @@ public class InputManager
             // 只处理新按下的键
             if (PreviousKeyboardState.IsKeyUp(key))
             {
-                string targetText = activeInputField == InputField.Username 
-                    ? loginManager.Username 
-                    : loginManager.Password;
+                string targetText = activeInputField == InputField.WalletAddress 
+                    ? loginManager.WalletAddress 
+                    : loginManager.PrivateKey;
                 
                 // 处理退格键
                 if (key == Keys.Back)
@@ -100,17 +100,17 @@ public class InputManager
                 else
                 {
                     char? character = GetCharFromKey(key, keyboardState.IsKeyDown(Keys.LeftShift) || keyboardState.IsKeyDown(Keys.RightShift));
-                    if (character.HasValue && targetText.Length < 20)
+                    if (character.HasValue && targetText.Length < 100)
                     {
                         targetText += character.Value;
                     }
                 }
                 
                 // 更新文本
-                if (activeInputField == InputField.Username)
-                    loginManager.Username = targetText;
+                if (activeInputField == InputField.WalletAddress)
+                    loginManager.WalletAddress = targetText;
                 else
-                    loginManager.Password = targetText;
+                    loginManager.PrivateKey = targetText;
             }
         }
     }

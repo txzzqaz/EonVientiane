@@ -256,6 +256,9 @@ public class Game1 : Game
                 case "对战历史":
                     _currentContentView = ContentView.Button3;
                     break;
+                case "成就":
+                    _currentContentView = ContentView.Button4;
+                    break;
             }
         }
 
@@ -320,8 +323,8 @@ public class Game1 : Game
             // 触发服务器登录请求（本地校验已通过）
             if (loginResult.LoginRequested)
             {
-                _ = _lobbyManager.LoginAsync(_loginManager.Username, _loginManager.Password);
-                _lobbyManager.ConfigurePlayer(_loginManager.Username);
+                _ = _lobbyManager.LoginAsync(_loginManager.WalletAddress, _loginManager.PrivateKey);
+                _lobbyManager.ConfigurePlayer(_loginManager.WalletAddress);
                 _isLoggingIn = true;
                 _authStatusMessage = "登录中...";
             }
@@ -337,7 +340,7 @@ public class Game1 : Game
             if (loginResult.RegisterClicked)
             {
                 _isRegistering = true;
-                _activeInputField = InputField.Username;
+                _activeInputField = InputField.WalletAddress;
                 _authStatusMessage = string.Empty;
             }
         }
@@ -348,17 +351,17 @@ public class Game1 : Game
 
             if (regResult.RegistrationRequested)
             {
-                _ = _lobbyManager.RegisterAsync(_loginManager.Username, _loginManager.Password, _loginManager.Email);
+                _ = _lobbyManager.RegisterAsync(_loginManager.WalletAddress, _loginManager.PrivateKey, _loginManager.WalletAddress);
                 // 注册请求发送后，返回登录界面等待提示
                 _isRegistering = false;
-                _activeInputField = InputField.Username;
+                _activeInputField = InputField.WalletAddress;
                 _authStatusMessage = "注册中...";
             }
 
             if (regResult.BackToLoginClicked)
             {
                 _isRegistering = false;
-                _activeInputField = InputField.Username;
+                _activeInputField = InputField.WalletAddress;
                 // 回到登录页时不清空，以便显示上一次的状态
             }
         }
@@ -367,7 +370,7 @@ public class Game1 : Game
         {
             if (_currentUser == null)
             {
-                _currentUser = new UserProfile(_loginManager.Username, string.Empty, DateTime.UtcNow, "Newbie");
+                _currentUser = new UserProfile(_loginManager.WalletAddress, string.Empty, DateTime.UtcNow, "Newbie");
                 _loginManager.SetCurrentUser(_currentUser);
             }
             _achievementSystem.SetUserId(_lobbyManager.UserId);
@@ -379,22 +382,20 @@ public class Game1 : Game
             _authStatusMessage = string.Empty;
         }
 
-        // 处理Tab切换输入框
+        // 处理Tab切换输入框（仅在钱包地址和私钥间切换）
         if (Keyboard.GetState().IsKeyDown(Keys.Tab) && _inputManager.PreviousKeyboardState.IsKeyUp(Keys.Tab))
         {
             if (_isRegistering)
             {
-                _activeInputField = _activeInputField == InputField.Username
-                    ? InputField.Password
-                    : _activeInputField == InputField.Password
-                        ? InputField.Email
-                        : InputField.Username;
+                _activeInputField = _activeInputField == InputField.WalletAddress
+                    ? InputField.PrivateKey
+                    : InputField.WalletAddress;
             }
             else
             {
-                _activeInputField = _activeInputField == InputField.Username
-                    ? InputField.Password
-                    : InputField.Username;
+                _activeInputField = _activeInputField == InputField.WalletAddress
+                    ? InputField.PrivateKey
+                    : InputField.WalletAddress;
             }
         }
 
@@ -736,7 +737,13 @@ public class Game1 : Game
         const int challengeSpacing = 10;
         int listX = panelX + 20;
         int listWidth = panelWidth - 40;
-        int listHeight = panelHeight - challengeStartY - 30;
+        int detailHeight = 150;
+        int detailBottomPadding = 20;
+        int listTopSpacing = 10;
+        int detailY = panelHeight - detailHeight - detailBottomPadding;
+        if (detailY < challengeStartY + challengeHeight + challengeSpacing)
+            detailY = challengeStartY + challengeHeight + challengeSpacing;
+        int listHeight = Math.Max(challengeHeight, detailY - challengeStartY - listTopSpacing);
 
         bool leftClicked = mouseState.LeftButton == ButtonState.Pressed && previousMouseState.LeftButton == ButtonState.Released;
         if (!leftClicked)
@@ -755,6 +762,26 @@ public class Game1 : Game
         }
 
         Point mousePoint = new Point(mouseState.X, mouseState.Y);
+
+        if (_selectedChallengeIndex.HasValue && _selectedChallengeIndex.Value >= 0 && _selectedChallengeIndex.Value < challenges.Count)
+        {
+            int buttonWidth = 120;
+            int buttonHeight = 36;
+            int buttonX = listX + listWidth - buttonWidth - 15;
+            int buttonY = detailY + detailHeight - buttonHeight - 12;
+            Rectangle buttonRect = new Rectangle(buttonX, buttonY, buttonWidth, buttonHeight);
+
+            if (buttonRect.Contains(mousePoint))
+            {
+                var selectedChallenge = challenges[_selectedChallengeIndex.Value];
+                if (!selectedChallenge.IsCompleted)
+                {
+                    StartPVEBattle(_selectedChallengeIndex.Value);
+                }
+                return;
+            }
+        }
+
         Rectangle listAreaRect = new Rectangle(listX, challengeStartY, listWidth, listHeight);
 
         if (!listAreaRect.Contains(mousePoint))

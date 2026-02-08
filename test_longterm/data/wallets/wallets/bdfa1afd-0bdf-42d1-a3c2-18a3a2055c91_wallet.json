@@ -1,0 +1,117 @@
+{
+  "userId": "bdfa1afd-0bdf-42d1-a3c2-18a3a2055c91",
+  "items": [
+    {
+      "itemId": "d6_dice",
+      "itemName": "D6",
+      "quantity": 10,
+      "instanceId": "ff7acad0262b4be68d2b08545ab2b68d",
+      "issuedAt": 1770541317,
+      "isEquipped": false,
+      "signature": "MeERQarRawczOcBr5lAoyIxjUrgsv/wh\u002B3UJO4Z0kBsgOcQngo4Lw9gJsD2h9OhzlpGSJuuXsnGTP91TQ/jg0Yxbj6YU/sus4rg5kX0K6n5C\u002Balx62uQWFYsPwOdzC2Xd9w5cf6Ogln0FlwVH96dD1nx4WFCr0IhpT2xJpWpahqmFYIww5vkzqKT439bVrUEOol3zUZHbLTbwBW/Ox07qjEXRgYY634/pb9JKg44b47m0VmR0BGlOF8iov13r30dupm3yke89\u002BHK3OxuxrH11VRI1WEzQErNKPOQvs7tEBqopMBnR9GgPaMtaWYo/MZgVFepdSB7\u002BTvsTV1vJzSlHA==",
+      "metadata": null
+    },
+    {
+      "itemId": "feathered_dice",
+      "itemName": "\u98DE\u7FBD",
+      "quantity": 10,
+      "instanceId": "61aabf05e680450a88ff1758d32a4a8e",
+      "issuedAt": 1770541317,
+      "isEquipped": false,
+      "signature": "KkxB7g/3QOxlSVYeIFLE2GRXro0Q\u002BnESM3QcCgEkvstfBY7\u002B7P62dprvigvdAN1pgjddHs1MdwmLI8\u002BIYz21WY26sAx0QwyN9boLJzXuKdI5w8h5/vZPz0SGFc1\u002B75nbjE\u002BqaU3ClGTEIOW\u002BBiv3lCQjq98loZ0rv1uIy8LqfHF4kcs/fdXE0W12vUhpPOxlwrR9jy/EMYBlwpT6lOvsS0W7oceSzAXZP\u002B2ue55jhSltEPbPJxDgRL22izd2rbnV2yblis8pYEt\u002BwgkvSI/YIzKq9LLRljU\u002BZT/g9tAw2uxrxnbXlA2N8my/8P7x5zEm\u002B1FfbosxCZkb/00pMxmaag==",
+      "metadata": null
+    },
+    {
+      "itemId": "spring_breeze",
+      "itemName": "\u6625\u98CE",
+      "quantity": 10,
+      "instanceId": "2feb4a79f5fb4c278d2ced4cabc7ba71",
+      "issuedAt": 1770541317,
+      "isEquipped": false,
+      "signature": "O4yV5t8T99ubUqkSqDGoIt/45dvMMgvXT\u002BnO\u002BQPjEfperzGbo4Xh8JQe8n\u002BtNVM0iv/i9xlTpjM7vYXxLKltb3j\u002BqKWFq5MWH0\u002BWU8nWHQv\u002BUt3qoS4L3qXV/ImexQazRFKbD/AhGP\u002BRFg6uJ5kqUCQp/fgAmI2u9bbS1lZo2b8hUwpgYUyCK0KS9ims8UXFD2zD0l1uQmS\u002BEw5Li9YV3E6jJHdJuUhdPX05HJQMURDsBHK2mQSFgnjZOF1EpRtS3vZiyFnlERvCmP0OMK8u1xaGktvavV7WFlVPtAfLaCTa7Z6YQJBmhxovpuP5tLtO7Uj/CV\u002BJNXw7hexNbnzVRg==",
+      "metadata": null
+    },
+    {
+      "itemId": "guasha_parquet",
+      "itemName": "\u522E\u75E7\u5E08\u5085",
+      "quantity": 10,
+      "instanceId": "5cc7ae1069594f89a72b73ee35b2f5d7",
+      "issuedAt": 1770541317,
+      "isEquipped": false,
+      "signature": "V\u002Bx0qfoE67GuPvN8AwxDCTrDbED4BgQVS32i9MD2N/Xqpj3mdsnoCt4ChFf7Rh3dD/xhGydr9JIHgHSKH2OdGQ7QUTdKJVY4RglL7WNiEEnxAYpHTlCI/WICibe1fjVkt5XgheIcQc1TVSl37zelBQWSF91Ni6km9qma8IgZVCA1EG2M/uFQM7ewIosLYAYTT0rCJqvqg4bdMIeT4fWdV1NRp8eg\u002BGDrGND\u002BfVv\u002BNTN/ibqIctdkw\u002BwAO8CwHgn8l6u7mpkW3Ij7n2bS5Wg3eNtsnZ2mrWyLd50eM\u002Ba9S2CsWBtCeg3KgD/6xXn\u002Bp3YE7WHx0c/nPRJjMKEy76p6QA==",
+      "metadata": null
+    },
+    {
+      "itemId": "error_dice",
+      "itemName": "ERROR",
+      "quantity": 10,
+      "instanceId": "abc417e0c47e49e286c77b938997e1e4",
+      "issuedAt": 1770541317,
+      "isEquipped": false,
+      "signature": "fuC1ATbRAGClOiqdEiLisNYFM5UcilNq9VBZEI1x6FDRT16OilEAFwIVUiEUlO/63CJtzGsSmdBk1HfftDTp9ZhM68XVrNni0\u002BrW8Xkm8tDc6JgkNwGpJ97zYwggdAPWYnupD\u002BnAoQgmqok4m7grT0H0Dulis5/j1ASFQ31imGQB4CLiaMfc3EK4Sm/1Zj1Q5Mbm3psX/idXyyrv1xfuTYrEA5fVAQw/zITT\u002Blvp6kh6eIVgpjKzQOk4TbIX9VX2EN4zkrBSgk19603Q0lMwm6Ray/qve9xCwPZay\u002Btmrwi7xPGvsXjDVF\u002B29enPMhjY5CSkHUo4yYRQ66NtGm//LQ==",
+      "metadata": null
+    },
+    {
+      "itemId": "self_accessory",
+      "itemName": "\u81EA\u6211",
+      "quantity": 10,
+      "instanceId": "094c60bb348b4b45a2a385ef1d4f0f6d",
+      "issuedAt": 1770541317,
+      "isEquipped": false,
+      "signature": "KONcVhNQRfyzEL74RWPy\u002BwJ\u002BjtA6C5pus6QH5QdkHaiyX/3VKvDIpDm/gUGd7GqVcGpvvmjBfFzKIfoX0oTUMZuoHDHxoFF1dxAd7VBu8N3do8E6HOV4erEun1K5O7MFT6DnDK9NO1WmAZD/H2wL\u002B4VrRznZHlrBSi0eqeXrUUQfN9B20AOFNf/NG1UBY3jbj3TcLZzEVorSIPdBgy9Lz7OR4ZtOVnDNLPt2aL2Ok9SLOZeHJ/QTy04xsxGnCEbI5\u002BGqswqY68kBqKPQJLvsuKswTDDiV39\u002BrcFBJb\u002BjcYjJI5d2MNOLDTLZCD36nWtOQ9heESYWkEHQrqQfJda4AA==",
+      "metadata": null
+    },
+    {
+      "itemId": "ascension_proof",
+      "itemName": "\u98DE\u5347\u4E4B\u8BC1",
+      "quantity": 10,
+      "instanceId": "a9f57fa84eea4d81a31c8b2699fd7753",
+      "issuedAt": 1770541317,
+      "isEquipped": false,
+      "signature": "VZPSkEbriuFZm8OMjBF4uQg2GxXbtUx4UT38xn1dIgv8ZJWyJQ1xSxNnbjNXcmBTdqmsiE3XIMgUb\u002BTpJwM59KHQ5Lth8BD/rcxgnYeugsis7Sij/0Nzuja0v/HBeskzrttNrJSQp\u002BMex9qwJY7R82vyvaqjIrfOXK3zypR3\u002BsuSbKMd3ccDKiJXtUwq1UX6573JGAwEK3JMR1\u002BJDik/DLAndu1fx\u002Bz0o3W1PJDTwDYeMTyl2HP9p0lv7y//Jua4bxtV9gncE\u002B7ZA1LJNoX55Fd593ELBV/PqGWKgrmWSaROg\u002BRFuindGb3xt\u002BFoOlOIGLoBmfoXy0hYlIWLvKipgw==",
+      "metadata": null
+    },
+    {
+      "itemId": "wanderer_heart",
+      "itemName": "\u6D41\u6D6A\u8005\u4E4B\u5FC3",
+      "quantity": 10,
+      "instanceId": "179a593a85114cd2bc529456f69ce94e",
+      "issuedAt": 1770541317,
+      "isEquipped": false,
+      "signature": "UxpyRQCPo5k8L8NQ9xY24ewtA2K0I243no13gN\u002B0iZSVOrf/FsayQRvgF2efVpo/GSPLn/yF8dnr4uyTtfz\u002B/PGNNEs5FZJIoFmep1oAqOARshBs9PblHELzDqKwkpYf3vVLC6Q4zrB50AtVLU80v0u6Mt0kVRtl1p\u002BHIIo7iQB5ylJGHCuCgp2RsYmG2I9SIGMpxJ9gFY8t5cEhAuDr07Tp56JPADK6ZELJR5VlkZF/69awsABJzREjMYSkRStHucUUajd7VM8g7p0QYLpb70uBN1xrqUslpbRgo8GEWn0we2qai3AhBD1TvOhu085LGZjbhSZ7CTN82kof7udVIw==",
+      "metadata": null
+    },
+    {
+      "itemId": "foresight",
+      "itemName": "\u9884\u77E5",
+      "quantity": 10,
+      "instanceId": "5801e260097b450ea37821455a7574d6",
+      "issuedAt": 1770541317,
+      "isEquipped": false,
+      "signature": "VF7TaiH6pfFeizSWV0OSI1eRDVs4WxbdTJzccTUi0QJUoFnGzupg33tGJqbztUd\u002BfcoYaTl1Tcv6OGmbzWjBqtZJ8D5cQrqwdHY05Ids7uJ7z6Dii2eIsAZVqY/V9Xa8V7N\u002B0nyy/3i4MiOAngpYIq6j37ogT6/pVa0yHQ8p/qh7LYXm4LosPWpjuBMJfv11FuipEDsst/vvCsJknbBnPhLZyIMhMOwAbrd1zVfiEDSxU9x8V5\u002BWK9aJXLLi6tRxUbLbA92m676egRizGFaHQqQ7JK/j5ulLgcSSvNo9HZOKEEDFst4hupEkpe9cDxv7zJkiDZOaQc3h6mrWm2yewQ==",
+      "metadata": null
+    },
+    {
+      "itemId": "concerted_effort",
+      "itemName": "\u9F50\u5FC3\u534F\u529B",
+      "quantity": 10,
+      "instanceId": "0a6101766180417eb1aeec61e27b644d",
+      "issuedAt": 1770541317,
+      "isEquipped": false,
+      "signature": "HhhU3m2/bxmHxuu26IC15hFkxWnxpKgUtk4Chnk08VreVhuPbaHoA1z\u002BZZVuKav869xQqumsxbESXg1gIzN8MV4AgGYa7qwqzYkSMTtFZ3YXEXatqP3a/imMao00sGCw6Yon709uqe8i9ReU5VNVSeltp1LGJitoM0f\u002BHSPdxfNaxnlkEZRICGvZh3e7ylqbJTmvn2MxGAIe930stB/O\u002BTbdwNDipBJv5K/B12Fty7WnKeMyyCH\u002B1/j/FFeGEbo1AjAM0VoFSkDX6O7Qhz7G1HvO5ztSHpXYpdjtYLVOtznAiXhlZpmxONUlyepD93BC4ikk6b6HeiLSwIRc0L2B0g==",
+      "metadata": null
+    },
+    {
+      "itemId": "holy_fire",
+      "itemName": "\u5723\u706B",
+      "quantity": 10,
+      "instanceId": "8b3e62794f51440eb2649c626eb2d582",
+      "issuedAt": 1770541317,
+      "isEquipped": false,
+      "signature": "VCvlhkB\u002Bj/8erGrQiyu2PO6n\u002BXoVuYV0KXQgvPnmN0kEaleZRpkdcem6jZVpIRrjdRWJ1qcaYbCvVJ7SAy2wwYVxpzlVkVPDXE4sX\u002B7kNNOQHZ\u002BHJ3jkFJHmVynCk5JUwpH5N/83ug7bmjTHxZorCKVOAWVp8sFDkMBI6f96lIjCg9c587viyDXZayZbadOdBYdhniW6UpovW8N1ZDOgDfgOBoU2sQZ4enjMkMAyPShvu0sn7ujowL7mRPHZc54tyisEuIEeS72gWW8gen7hMxjXFUg9ISmbK0LMaRfSBY9FQmDLnxQ9T1qHigaG/voVgmOYp6QsfTKdevN3xa2D7A==",
+      "metadata": null
+    }
+  ],
+  "version": 1,
+  "lastUpdated": 1770541317
+}

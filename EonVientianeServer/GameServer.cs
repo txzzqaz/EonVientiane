@@ -49,6 +49,43 @@ public class GameServer
         Console.WriteLine("[GameServer] 已启用区块链风格钱包系统（RSA-2048加密）");
     }
 
+    private List<InitialInventoryItem> GetInitialInventoryForUser(string userId)
+    {
+        if (_userManager.IsTestAccount(userId))
+        {
+            return ItemInitializer.GetTestAccountInventory();
+        }
+
+        return ItemInitializer.GetInitialInventory(userId);
+    }
+
+    private void EnsureTestAccountInventory(string userId)
+    {
+        if (!_userManager.IsTestAccount(userId))
+        {
+            return;
+        }
+
+        var initialItems = ItemInitializer.GetTestAccountInventory();
+        var wallet = _walletManager.LoadOrCreateWallet(userId, initialItems);
+        var existingIds = new HashSet<string>(wallet.Items.Select(item => item.ItemId));
+
+        var missingItems = initialItems.Where(item => !existingIds.Contains(item.ItemId)).ToList();
+        if (missingItems.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var missing in missingItems)
+        {
+            var issued = _walletManager.IssueItem(userId, missing.ItemId, missing.ItemName, missing.Quantity);
+            wallet.Items.Add(issued);
+        }
+
+        _walletManager.SaveWallet(wallet);
+        Console.WriteLine($"[TestAccount] Synced {missingItems.Count} items for {userId}");
+    }
+
     
     /// <summary>
     /// 启动服务器
@@ -327,6 +364,8 @@ public class GameServer
         
         if (success && !string.IsNullOrEmpty(userId) && !string.IsNullOrEmpty(token))
         {
+            EnsureTestAccountInventory(userId);
+
             var oldPlayerId = client.PlayerId;
             client.UserId = userId;
             client.AuthToken = token;
@@ -453,7 +492,7 @@ public class GameServer
             return;
         }
         
-        var items = ItemInitializer.GetInitialInventory(request.UserId);
+        var items = GetInitialInventoryForUser(request.UserId);
         
         var response = NetworkMessage.Create(MessageType.InitialInventoryResponse, new InitialInventoryResponse
         {
@@ -478,10 +517,8 @@ public class GameServer
 
         try
         {
-            // 统一使用GetInitialInventory初始化背包
-            Func<List<InitialInventoryItem>> initialFactory = () => ItemInitializer.GetInitialInventory(client.UserId);
-                
-            var state = _inventoryStore.LoadOrCreate(client.UserId, initialFactory);
+            // 初始化背包数据
+            var state = _inventoryStore.LoadOrCreate(client.UserId, () => GetInitialInventoryForUser(client.UserId));
             var dto = _inventoryStore.ToDto(state);
             
             // 发送背包数据
@@ -516,8 +553,7 @@ public class GameServer
             return;
         }
 
-        var initialFactory = () => ItemInitializer.GetInitialInventory(client.UserId);
-        var state = _inventoryStore.LoadOrCreate(client.UserId, initialFactory);
+        var state = _inventoryStore.LoadOrCreate(client.UserId, () => GetInitialInventoryForUser(client.UserId));
         var stack = state.Items.FirstOrDefault(i => i.StackId == request.StackId);
 
         if (stack == null)
@@ -552,8 +588,7 @@ public class GameServer
             return;
         }
 
-        var initialFactory = () => ItemInitializer.GetInitialInventory(client.UserId);
-        var state = _inventoryStore.LoadOrCreate(client.UserId, initialFactory);
+        var state = _inventoryStore.LoadOrCreate(client.UserId, () => GetInitialInventoryForUser(client.UserId));
         var stack = state.Items.FirstOrDefault(i => i.StackId == request.StackId);
 
         if (stack == null)
@@ -1068,8 +1103,7 @@ public class GameServer
             
             foreach (var client in clients)
             {
-                var initialFactory = () => ItemInitializer.GetInitialInventory(client.UserId);
-                var inventoryState = _inventoryStore.LoadOrCreate(client.UserId, initialFactory);
+                var inventoryState = _inventoryStore.LoadOrCreate(client.UserId, () => GetInitialInventoryForUser(client.UserId));
                 
                 var equippedItems = inventoryState.Items
                     .Where(item => item.IsEquipped)
@@ -1657,7 +1691,7 @@ public class GameServer
                 {
                     try
                     {
-                        var inventoryState = _inventoryStore.LoadOrCreate(client.UserId, () => ItemInitializer.GetInitialInventory(client.UserId));
+                        var inventoryState = _inventoryStore.LoadOrCreate(client.UserId, () => GetInitialInventoryForUser(client.UserId));
                         
                         foreach (var reward in rewards)
                         {

@@ -13,11 +13,8 @@ public class LoginManager
     private LocalAccountManager _localAccountManager;
     private bool _isOfflineMode = false;
     
-    public string Username { get; set; } = "";  // 登录时为钱包地址
-    public string Password { get; set; } = "";  // 登录时为私钥/密钥
-    public string Email { get; set; } = "";     // 已弃用
-    public string WalletAddress { get; set; } = "";  // 注册时的钱包地址
-    public string PrivateKey { get; set; } = "";      // 注册时的私钥
+    public string WalletAddress { get; set; } = "";
+    public string PrivateKey { get; set; } = "";
     
     public bool IsOfflineMode => _isOfflineMode;
     public LocalAccountManager LocalAccountManager => _localAccountManager;
@@ -30,23 +27,23 @@ public class LoginManager
     }
     
     /// <summary>
-    /// 本地离线登录
+    /// 本地离线登录 - 使用钱包地址和私钥
     /// </summary>
-    public (bool success, string message) LocalLogin(string username, string password)
+    public (bool success, string message) LocalLogin(string walletAddress, string privateKey)
     {
-        var (success, account, message) = _localAccountManager.Login(username, password);
+        var (success, account, message) = _localAccountManager.Login(walletAddress, privateKey);
         
         if (success && account != null)
         {
             // 创建本地用户配置
             _currentUser = new UserProfile(
                 account.Username,
-                account.Email,
+                walletAddress,
                 account.CreatedDate,
                 account.ProfileData.ContainsKey("level") ? account.ProfileData["level"] : "1"
             );
             _isOfflineMode = true;
-            System.Diagnostics.Debug.WriteLine($"本地离线登录成功: {username}");
+            System.Diagnostics.Debug.WriteLine($"本地离线登录成功: {walletAddress}");
             return (true, "本地离线登录成功");
         }
         
@@ -54,44 +51,44 @@ public class LoginManager
     }
     
     /// <summary>
-    /// 本地离线注册
+    /// 本地离线注册 - 基于钱包地址和私钥
     /// </summary>
-    public (bool success, string message) LocalRegister(string username, string password, string email)
+    public (bool success, string message) LocalRegister(string walletAddress, string privateKey)
     {
-        return _localAccountManager.CreateAccount(username, password, email);
+        return _localAccountManager.CreateAccount(walletAddress, privateKey, walletAddress);
     }
     
     /// <summary>
     /// 用户登录 - 仅用于本地输入验证，实际认证由服务器处理
     /// </summary>
-    public bool Login(string username, string password)
+    public bool Login(string walletAddress, string privateKey)
     {
         // 仅进行基本的输入验证
-        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+        if (string.IsNullOrEmpty(walletAddress) || string.IsNullOrEmpty(privateKey))
         {
-            System.Diagnostics.Debug.WriteLine("Login failed: username or password is empty");
+            System.Diagnostics.Debug.WriteLine("Login failed: wallet address or private key is empty");
             return false;
         }
         
         // 注意：实际的认证逻辑在服务器端，客户端仅做输入验证
-        System.Diagnostics.Debug.WriteLine($"Login validation passed for user {username}, awaiting server response");
+        System.Diagnostics.Debug.WriteLine($"Login validation passed for wallet {walletAddress}, awaiting server response");
         return true;
     }
     
     /// <summary>
     /// 用户注册 - 仅用于本地输入验证，实际注册由服务器处理
     /// </summary>
-    public bool Register(string username, string password, string email)
+    public bool Register(string walletAddress, string privateKey)
     {
         // 仅进行基本的输入验证
-        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password) || string.IsNullOrEmpty(email))
+        if (string.IsNullOrEmpty(walletAddress) || string.IsNullOrEmpty(privateKey))
         {
-            System.Diagnostics.Debug.WriteLine("Register failed: one or more fields are empty");
+            System.Diagnostics.Debug.WriteLine("Register failed: wallet address or private key is empty");
             return false;
         }
         
         // 注意：实际的注册逻辑在服务器端，客户端仅做输入验证
-        System.Diagnostics.Debug.WriteLine($"Register validation passed for user {username}, awaiting server response");
+        System.Diagnostics.Debug.WriteLine($"Register validation passed for wallet {walletAddress}, awaiting server response");
         return true;
     }
     
@@ -132,9 +129,8 @@ public class LoginManager
     /// </summary>
     public void ClearInput()
     {
-        Username = "";
-        Password = "";
-        Email = "";
+        WalletAddress = "";
+        PrivateKey = "";
     }
     
     /// <summary>

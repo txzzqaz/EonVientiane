@@ -43,12 +43,52 @@ public class BattleManager
     private string _manualInputText = string.Empty;
     private string _manualInputError = string.Empty;
     private KeyboardState _previousKeyboardState;
+    private GamePadState _previousGamePadState;
     private bool _manualInputForPlanning = false;  // 用于规划系统的手动输入
     private bool _manualInputForPlanningAD = false;  // 是否为AD行的规划输入
+
+    private static readonly Keys[] DiceShortcutRowPrimary = new[]
+    {
+        Keys.Q, Keys.W, Keys.E, Keys.R, Keys.U, Keys.I, Keys.O, Keys.P
+    };
+
+    private static readonly Keys[] DiceShortcutRowSecondary = new[]
+    {
+        Keys.A, Keys.S, Keys.D, Keys.F, Keys.J, Keys.K, Keys.L, Keys.OemSemicolon
+    };
+
+    private static readonly string[] DiceShortcutRowPrimaryLabels =
+    {
+        "Q", "W", "E", "R", "U", "I", "O", "P"
+    };
+
+    private static readonly string[] DiceShortcutRowSecondaryLabels =
+    {
+        "A", "S", "D", "F", "J", "K", "L", ";"
+    };
+
+    private static readonly string[] GamePadSlotLabels =
+    {
+        "LS↑/D↑", "LS→/D→", "LS↓/D↓", "LS←/D←",
+        "RS↑/Y", "RS→/B", "RS↓/A", "RS←/X"
+    };
+
+    private const float ShortcutLabelScale = 0.7f;
 
     private InventoryManager _inventoryManager;
     private int _menuWidth;
     private ItemIconProvider _iconProvider;
+
+    // 快捷键配置
+    private KeyBindingConfig _keyBindingConfig;
+    private bool _settingsUIOpen = false;
+    private Rectangle _settingsButtonRect;
+    private Rectangle _closeSettingsButtonRect;
+    private Rectangle _pdKeyboardButtonRect;
+    private Rectangle _pdGamePadButtonRect;
+    private bool _isBindingKey = false;  // 是否正在绑定快捷键
+    private bool _isBindingGamePad = false;
+    private string _bindingPromptMessage = string.Empty;
     
     // 多人战斗相关
     private bool _isMultiplayerBattle = false;
@@ -73,6 +113,7 @@ public class BattleManager
     {
         _inventoryManager = inventoryManager;
         _menuWidth = menuWidth;
+        _keyBindingConfig = new KeyBindingConfig();
     }
 
     public void SetIconProvider(ItemIconProvider iconProvider)
@@ -294,6 +335,7 @@ public class BattleManager
     {
         int panelX = _menuWidth;
         var keyboardState = Keyboard.GetState();
+        var gamePadState = GamePad.GetState(PlayerIndex.One);
 
         // 战斗已结束，处理结算界面的输入
         if (_currentBattle != null && _currentBattle.IsBattleOver && _battleEndNotification != null)
@@ -309,6 +351,7 @@ public class BattleManager
                 }
             }
             _previousKeyboardState = keyboardState;
+            _previousGamePadState = gamePadState;
             return;
         }
 
@@ -316,11 +359,35 @@ public class BattleManager
         {
             HandleManualInput(keyboardState, mouseState, previousMouseState, panelX, panelWidth, panelHeight);
             _previousKeyboardState = keyboardState;
+            _previousGamePadState = gamePadState;
             return;
         }
 
         _battleLogToggleRect = new Rectangle(panelX + panelWidth - 90, 10, 80, 30);
         _surrenderButtonRect = new Rectangle(panelX + panelWidth - 180, 10, 80, 30);
+        _settingsButtonRect = new Rectangle(panelX + 10, panelHeight - 45, 80, 35);
+
+        // 处理设置界面
+        if (_settingsUIOpen)
+        {
+            HandleSettingsUIInput(mouseState, previousMouseState, keyboardState);
+            _previousKeyboardState = keyboardState;
+            _previousGamePadState = gamePadState;
+            return;
+        }
+
+        // 设置按钮点击
+        if (mouseState.LeftButton == ButtonState.Pressed && previousMouseState.LeftButton == ButtonState.Released)
+        {
+            Point mp = new Point(mouseState.X, mouseState.Y);
+            if (_settingsButtonRect.Contains(mp))
+            {
+                _settingsUIOpen = true;
+                _previousKeyboardState = keyboardState;
+                _previousGamePadState = gamePadState;
+                return;
+            }
+        }
 
         if (mouseState.LeftButton == ButtonState.Pressed && previousMouseState.LeftButton == ButtonState.Released)
         {
@@ -363,20 +430,31 @@ public class BattleManager
         if (_currentBattle != null && HasForesightAccessory())
         {
             HandleForesightPlanningInput(mouseState, previousMouseState, panelX, panelWidth, panelHeight);
+            HandleForesightPlanningShortcuts(keyboardState, gamePadState);
         }
 
         if (_currentBattle != null && _currentBattle.IsWaitingForPlayerInput)
         {
+            if (!HasForesightAccessory())
+            {
+                if (HandleBattleActionShortcuts(keyboardState, gamePadState))
+                {
+                    _previousKeyboardState = keyboardState;
+                    _previousGamePadState = gamePadState;
+                    return;
+                }
+            }
             HandleBattleActionInput(mouseState, previousMouseState, panelX, panelWidth, panelHeight);
         }
 
         _previousKeyboardState = keyboardState;
+        _previousGamePadState = gamePadState;
     }
 
     private void HandleBattleActionInput(MouseState mouseState, MouseState previousMouseState, int panelX, int panelWidth, int panelHeight)
     {
         int diceAreaY = panelHeight - 120;
-        int btnW = 140;
+        int btnW = 110;
         int btnH = 40;
         int spacing = 10;
         int startX = panelX + 20;
@@ -483,6 +561,539 @@ public class BattleManager
                 }
             }
         }
+    }
+
+    private bool HandleBattleActionShortcuts(KeyboardState keyboardState, GamePadState gamePadState)
+    {
+        if (_currentBattle == null || !_currentBattle.IsWaitingForPlayerInput)
+            return false;
+
+        var context = _currentBattle.InputContext;
+        if (context != BattleInputContext.AttackSelection && context != BattleInputContext.DefenseSelection)
+            return false;
+
+        if (IsSkipShortcutPressed(keyboardState, _previousKeyboardState, gamePadState, _previousGamePadState))
+        {
+            if (context == BattleInputContext.AttackSelection)
+            {
+                _pendingSelectedDice = null;
+                BattleActionRequested?.Invoke(null, null, null);
+            }
+            else
+            {
+                BattleDefenseRequested?.Invoke(null, null);
+            }
+            return true;
+        }
+
+        int? slotIndex = GetNewSlotIndexFromKeyboard(keyboardState, _previousKeyboardState, DiceShortcutRowPrimary);
+        if (slotIndex == null)
+        {
+            slotIndex = GetNewSlotIndexFromGamePad(gamePadState, _previousGamePadState);
+        }
+
+        if (slotIndex == null)
+            return false;
+
+        var displayDice = GetDisplayDiceForCurrentContext();
+        var availableNames = BuildAvailableDiceNameSet(context);
+        if (slotIndex.Value < 0 || slotIndex.Value >= displayDice.Count)
+            return false;
+
+        var dice = displayDice[slotIndex.Value];
+        return TryHandleDiceSelection(dice, context, availableNames);
+    }
+
+    private void HandleForesightPlanningShortcuts(KeyboardState keyboardState, GamePadState gamePadState)
+    {
+        if (_currentBattle == null || !HasForesightAccessory())
+            return;
+
+        if (IsUndoShortcutPressed(keyboardState, gamePadState))
+        {
+            if (TryUndoLastPlannedAction())
+            {
+                ShowTip("已撤回上一个规划");
+            }
+            else
+            {
+                ShowTip("没有可撤回的规划");
+            }
+            return;
+        }
+
+        if (IsSkipShortcutPressed(keyboardState, _previousKeyboardState, gamePadState, _previousGamePadState))
+        {
+            ShowTip("跳过AD规划");
+            return;
+        }
+
+        // 检查PD跳过快捷键
+        if (IsPDSkipShortcutPressed(keyboardState, _previousKeyboardState, gamePadState, _previousGamePadState))
+        {
+            ShowTip("跳过PD规划");
+            return;
+        }
+
+        int? adSlot = GetNewSlotIndexFromKeyboard(keyboardState, _previousKeyboardState, DiceShortcutRowPrimary);
+        int? pdSlot = GetNewSlotIndexFromKeyboard(keyboardState, _previousKeyboardState, DiceShortcutRowSecondary);
+
+        if (adSlot == null)
+        {
+            adSlot = GetNewSlotIndexFromGamePadLeftGroup(gamePadState, _previousGamePadState);
+        }
+
+        if (pdSlot == null)
+        {
+            pdSlot = GetNewSlotIndexFromGamePadRightGroup(gamePadState, _previousGamePadState);
+        }
+
+        if (adSlot.HasValue)
+        {
+            TryPlanDiceByIndex(adSlot.Value, true);
+            return;
+        }
+
+        if (pdSlot.HasValue)
+        {
+            TryPlanDiceByIndex(pdSlot.Value, false);
+        }
+    }
+
+    private bool TryHandleDiceSelection(Dice dice, BattleInputContext context, HashSet<string> availableNames)
+    {
+        if (!IsDiceEnabledForContext(dice, availableNames, context))
+            return false;
+
+        if (context == BattleInputContext.AttackSelection)
+        {
+            var opponents = _currentBattle.AvailableOpponents;
+            if (opponents.Count <= 1)
+            {
+                var targetId = opponents.FirstOrDefault()?.PlayerId;
+                if (DiceRequiresManualInput(dice))
+                {
+                    StartManualInput(dice.Name, targetId, false);
+                }
+                else
+                {
+                    BattleActionRequested?.Invoke(dice.Name, targetId, null);
+                }
+            }
+            else
+            {
+                _pendingSelectedDice = dice;
+            }
+            return true;
+        }
+
+        if (context == BattleInputContext.DefenseSelection)
+        {
+            if (DiceRequiresManualInput(dice))
+            {
+                StartManualInput(dice.Name, null, true);
+            }
+            else
+            {
+                BattleDefenseRequested?.Invoke(dice.Name, null);
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    private void TryPlanDiceByIndex(int slotIndex, bool isAD)
+    {
+        var localPlayer = GetLocalPlayer();
+        if (localPlayer == null)
+            return;
+
+        var displayDice = localPlayer.GetEquippedDice();
+        if (slotIndex < 0 || slotIndex >= displayDice.Count)
+            return;
+
+        var dice = displayDice[slotIndex];
+
+        if (DiceRequiresManualInput(dice))
+        {
+            _manualInputOpen = true;
+            _manualInputForPlanning = true;
+            _manualInputForPlanningAD = isAD;
+            _manualInputDiceName = dice.Name;
+            _manualInputIsDefense = !isAD;
+            _manualInputTargetPlayerId = null;
+            _manualInputText = string.Empty;
+            return;
+        }
+
+        if (isAD)
+        {
+            var opponents = _currentBattle.AvailableOpponents;
+            if (opponents.Count <= 1)
+            {
+                var targetId = opponents.FirstOrDefault()?.PlayerId;
+                AddPlannedAction(dice.Name, true, targetId, 0);
+                ShowTip($"已规划AD: {dice.Name}");
+            }
+            else
+            {
+                ShowTip("需要选择目标进行AD规划");
+            }
+        }
+        else
+        {
+            AddPlannedAction(dice.Name, false, null, 0);
+            ShowTip($"已规划PD: {dice.Name}");
+        }
+    }
+
+    private bool TryUndoLastPlannedAction()
+    {
+        var localPlayer = GetLocalPlayer();
+        if (localPlayer == null)
+            return false;
+
+        PlannedAction latestAction = null;
+        PlannedActionSequence latestSequence = null;
+        bool latestIsAd = true;
+        int latestIndex = -1;
+
+        foreach (var kvp in localPlayer.PlannedActionsAD)
+        {
+            var actions = kvp.Value.Actions;
+            for (int i = actions.Count - 1; i >= 0; i--)
+            {
+                var action = actions[i];
+                if (latestAction == null || action.CreatedTick > latestAction.CreatedTick)
+                {
+                    latestAction = action;
+                    latestSequence = kvp.Value;
+                    latestIsAd = true;
+                    latestIndex = i;
+                }
+            }
+        }
+
+        foreach (var kvp in localPlayer.PlannedActionsPD)
+        {
+            var actions = kvp.Value.Actions;
+            for (int i = actions.Count - 1; i >= 0; i--)
+            {
+                var action = actions[i];
+                if (latestAction == null || action.CreatedTick > latestAction.CreatedTick)
+                {
+                    latestAction = action;
+                    latestSequence = kvp.Value;
+                    latestIsAd = false;
+                    latestIndex = i;
+                }
+            }
+        }
+
+        if (latestAction == null || latestSequence == null || latestIndex < 0)
+            return false;
+
+        latestSequence.Actions.RemoveAt(latestIndex);
+
+        if (latestSequence.Actions.Count == 0)
+        {
+            if (latestIsAd)
+            {
+                localPlayer.PlannedActionsAD.Remove(latestSequence.DiceName);
+            }
+            else
+            {
+                localPlayer.PlannedActionsPD.Remove(latestSequence.DiceName);
+            }
+        }
+
+        UpdatePlannedActionSequenceNumbers();
+        return true;
+    }
+
+    private static bool IsSkipShortcutPressed(KeyboardState currentKeyboard, KeyboardState previousKeyboard, GamePadState currentGamePad, GamePadState previousGamePad)
+    {
+        bool keyboardSkip = currentKeyboard.IsKeyDown(Keys.Space) && previousKeyboard.IsKeyUp(Keys.Space);
+        bool gamepadSkip = currentGamePad.Triggers.Right > 0.5f && previousGamePad.Triggers.Right <= 0.5f;
+        return keyboardSkip || gamepadSkip;
+    }
+
+    private bool IsPDSkipShortcutPressed(KeyboardState currentKeyboard, KeyboardState previousKeyboard, GamePadState currentGamePad, GamePadState previousGamePad)
+    {
+        // PD跳过键检查（如果已配置）
+        if (_keyBindingConfig.PDSkipKeyboard.HasValue)
+        {
+            if (currentKeyboard.IsKeyDown(_keyBindingConfig.PDSkipKeyboard.Value) && previousKeyboard.IsKeyUp(_keyBindingConfig.PDSkipKeyboard.Value))
+                return true;
+        }
+
+        if (_keyBindingConfig.PDSkipGamePad.HasValue)
+        {
+            if (IsGamePadButtonPressed(currentGamePad, previousGamePad, _keyBindingConfig.PDSkipGamePad.Value))
+                return true;
+        }
+
+        return false;
+    }
+
+    private bool IsGamePadButtonPressed(GamePadState current, GamePadState previous, KeyBindingConfig.GamePadButton button)
+    {
+        return button switch
+        {
+            KeyBindingConfig.GamePadButton.A => IsNewButtonPressed(current, previous, Buttons.A),
+            KeyBindingConfig.GamePadButton.B => IsNewButtonPressed(current, previous, Buttons.B),
+            KeyBindingConfig.GamePadButton.X => IsNewButtonPressed(current, previous, Buttons.X),
+            KeyBindingConfig.GamePadButton.Y => IsNewButtonPressed(current, previous, Buttons.Y),
+            KeyBindingConfig.GamePadButton.LB => IsNewButtonPressed(current, previous, Buttons.LeftShoulder),
+            KeyBindingConfig.GamePadButton.RB => IsNewButtonPressed(current, previous, Buttons.RightShoulder),
+            KeyBindingConfig.GamePadButton.LT => current.Triggers.Left > 0.5f && previous.Triggers.Left <= 0.5f,
+            KeyBindingConfig.GamePadButton.RT => current.Triggers.Right > 0.5f && previous.Triggers.Right <= 0.5f,
+            KeyBindingConfig.GamePadButton.DPadUp => IsNewButtonPressed(current, previous, Buttons.DPadUp),
+            KeyBindingConfig.GamePadButton.DPadDown => IsNewButtonPressed(current, previous, Buttons.DPadDown),
+            KeyBindingConfig.GamePadButton.DPadLeft => IsNewButtonPressed(current, previous, Buttons.DPadLeft),
+            KeyBindingConfig.GamePadButton.DPadRight => IsNewButtonPressed(current, previous, Buttons.DPadRight),
+            KeyBindingConfig.GamePadButton.LeftStickUp => IsNewDirectionPressed(current, previous, StickDirection.Up, true),
+            KeyBindingConfig.GamePadButton.LeftStickDown => IsNewDirectionPressed(current, previous, StickDirection.Down, true),
+            KeyBindingConfig.GamePadButton.LeftStickLeft => IsNewDirectionPressed(current, previous, StickDirection.Left, true),
+            KeyBindingConfig.GamePadButton.LeftStickRight => IsNewDirectionPressed(current, previous, StickDirection.Right, true),
+            KeyBindingConfig.GamePadButton.RightStickUp => IsNewDirectionPressed(current, previous, StickDirection.Up, false),
+            KeyBindingConfig.GamePadButton.RightStickDown => IsNewDirectionPressed(current, previous, StickDirection.Down, false),
+            KeyBindingConfig.GamePadButton.RightStickLeft => IsNewDirectionPressed(current, previous, StickDirection.Left, false),
+            KeyBindingConfig.GamePadButton.RightStickRight => IsNewDirectionPressed(current, previous, StickDirection.Right, false),
+            _ => false
+        };
+    }
+
+    private bool IsUndoShortcutPressed(KeyboardState keyboardState, GamePadState gamePadState)
+    {
+        bool keyboardUndo = keyboardState.IsKeyDown(Keys.Back) && _previousKeyboardState.IsKeyUp(Keys.Back);
+        bool gamepadUndo = gamePadState.Triggers.Left > 0.5f && _previousGamePadState.Triggers.Left <= 0.5f;
+        return keyboardUndo || gamepadUndo;
+    }
+
+    private void HandleSettingsUIInput(MouseState mouseState, MouseState previousMouseState, KeyboardState keyboardState)
+    {
+        if (mouseState.LeftButton == ButtonState.Pressed && previousMouseState.LeftButton == ButtonState.Released)
+        {
+            Point mp = new Point(mouseState.X, mouseState.Y);
+
+            // 关闭按钮
+            if (_closeSettingsButtonRect.Contains(mp))
+            {
+                _settingsUIOpen = false;
+                _isBindingKey = false;
+                _isBindingGamePad = false;
+                return;
+            }
+
+            // PD键盘快捷键按钮
+            if (_pdKeyboardButtonRect.Contains(mp))
+            {
+                _isBindingKey = true;
+                _isBindingGamePad = false;
+                _bindingPromptMessage = "按下要绑定的键盘按键...";
+                return;
+            }
+
+            // PD手柄快捷键按钮
+            if (_pdGamePadButtonRect.Contains(mp))
+            {
+                _isBindingKey = false;
+                _isBindingGamePad = true;
+                _bindingPromptMessage = "按下要绑定的手柄按键...";
+                return;
+            }
+        }
+
+        // 处理快捷键绑定
+        if (_isBindingKey)
+        {
+            foreach (var key in keyboardState.GetPressedKeys())
+            {
+                if (_previousKeyboardState.IsKeyUp(key) && key != Keys.Escape)
+                {
+                    _keyBindingConfig.PDSkipKeyboard = key;
+                    _isBindingKey = false;
+                    _bindingPromptMessage = string.Empty;
+                    return;
+                }
+            }
+
+            if (keyboardState.IsKeyDown(Keys.Escape) && _previousKeyboardState.IsKeyUp(Keys.Escape))
+            {
+                _keyBindingConfig.PDSkipKeyboard = null;
+                _isBindingKey = false;
+                _bindingPromptMessage = string.Empty;
+                return;
+            }
+        }
+
+        if (_isBindingGamePad)
+        {
+            var gamePadState = GamePad.GetState(PlayerIndex.One);
+            KeyBindingConfig.GamePadButton? boundButton = TryGetGamePadButtonPress(gamePadState, _previousGamePadState);
+
+            if (boundButton.HasValue)
+            {
+                if (boundButton.Value == KeyBindingConfig.GamePadButton.None)
+                {
+                    _keyBindingConfig.PDSkipGamePad = null;
+                }
+                else
+                {
+                    _keyBindingConfig.PDSkipGamePad = boundButton.Value;
+                }
+                _isBindingGamePad = false;
+                _bindingPromptMessage = string.Empty;
+                return;
+            }
+        }
+
+        // ESC关闭设置界面
+        if (keyboardState.IsKeyDown(Keys.Escape) && _previousKeyboardState.IsKeyUp(Keys.Escape))
+        {
+            _settingsUIOpen = false;
+            _isBindingKey = false;
+            _isBindingGamePad = false;
+            return;
+        }
+    }
+
+    private KeyBindingConfig.GamePadButton? TryGetGamePadButtonPress(GamePadState current, GamePadState previous)
+    {
+        if (IsNewButtonPressed(current, previous, Buttons.A))
+            return KeyBindingConfig.GamePadButton.A;
+        if (IsNewButtonPressed(current, previous, Buttons.B))
+            return KeyBindingConfig.GamePadButton.B;
+        if (IsNewButtonPressed(current, previous, Buttons.X))
+            return KeyBindingConfig.GamePadButton.X;
+        if (IsNewButtonPressed(current, previous, Buttons.Y))
+            return KeyBindingConfig.GamePadButton.Y;
+        if (IsNewButtonPressed(current, previous, Buttons.LeftShoulder))
+            return KeyBindingConfig.GamePadButton.LB;
+        if (IsNewButtonPressed(current, previous, Buttons.RightShoulder))
+            return KeyBindingConfig.GamePadButton.RB;
+        if (current.Triggers.Left > 0.5f && previous.Triggers.Left <= 0.5f)
+            return KeyBindingConfig.GamePadButton.LT;
+        if (current.Triggers.Right > 0.5f && previous.Triggers.Right <= 0.5f)
+            return KeyBindingConfig.GamePadButton.RT;
+        if (IsNewButtonPressed(current, previous, Buttons.DPadUp))
+            return KeyBindingConfig.GamePadButton.DPadUp;
+        if (IsNewButtonPressed(current, previous, Buttons.DPadDown))
+            return KeyBindingConfig.GamePadButton.DPadDown;
+        if (IsNewButtonPressed(current, previous, Buttons.DPadLeft))
+            return KeyBindingConfig.GamePadButton.DPadLeft;
+        if (IsNewButtonPressed(current, previous, Buttons.DPadRight))
+            return KeyBindingConfig.GamePadButton.DPadRight;
+
+        if (IsNewDirectionPressed(current, previous, StickDirection.Up, true))
+            return KeyBindingConfig.GamePadButton.LeftStickUp;
+        if (IsNewDirectionPressed(current, previous, StickDirection.Down, true))
+            return KeyBindingConfig.GamePadButton.LeftStickDown;
+        if (IsNewDirectionPressed(current, previous, StickDirection.Left, true))
+            return KeyBindingConfig.GamePadButton.LeftStickLeft;
+        if (IsNewDirectionPressed(current, previous, StickDirection.Right, true))
+            return KeyBindingConfig.GamePadButton.LeftStickRight;
+
+        if (IsNewDirectionPressed(current, previous, StickDirection.Up, false))
+            return KeyBindingConfig.GamePadButton.RightStickUp;
+        if (IsNewDirectionPressed(current, previous, StickDirection.Down, false))
+            return KeyBindingConfig.GamePadButton.RightStickDown;
+        if (IsNewDirectionPressed(current, previous, StickDirection.Left, false))
+            return KeyBindingConfig.GamePadButton.RightStickLeft;
+        if (IsNewDirectionPressed(current, previous, StickDirection.Right, false))
+            return KeyBindingConfig.GamePadButton.RightStickRight;
+
+        return null;
+    }
+
+    private static int? GetNewSlotIndexFromKeyboard(KeyboardState current, KeyboardState previous, Keys[] mapping)
+    {
+        for (int i = 0; i < mapping.Length; i++)
+        {
+            if (current.IsKeyDown(mapping[i]) && previous.IsKeyUp(mapping[i]))
+            {
+                return i;
+            }
+        }
+        return null;
+    }
+
+    private static int? GetNewSlotIndexFromGamePad(GamePadState current, GamePadState previous)
+    {
+        var leftIndex = GetNewSlotIndexFromGamePadLeftGroup(current, previous);
+        if (leftIndex.HasValue)
+            return leftIndex.Value;
+
+        var rightIndex = GetNewSlotIndexFromGamePadRightGroup(current, previous);
+        return rightIndex;
+    }
+
+    private static int? GetNewSlotIndexFromGamePadLeftGroup(GamePadState current, GamePadState previous)
+    {
+        if (IsNewDirectionPressed(current, previous, StickDirection.Up, true) || IsNewButtonPressed(current, previous, Buttons.DPadUp))
+            return 0;
+        if (IsNewDirectionPressed(current, previous, StickDirection.Right, true) || IsNewButtonPressed(current, previous, Buttons.DPadRight))
+            return 1;
+        if (IsNewDirectionPressed(current, previous, StickDirection.Down, true) || IsNewButtonPressed(current, previous, Buttons.DPadDown))
+            return 2;
+        if (IsNewDirectionPressed(current, previous, StickDirection.Left, true) || IsNewButtonPressed(current, previous, Buttons.DPadLeft))
+            return 3;
+        return null;
+    }
+
+    private static int? GetNewSlotIndexFromGamePadRightGroup(GamePadState current, GamePadState previous)
+    {
+        if (IsNewDirectionPressed(current, previous, StickDirection.Up, false) || IsNewButtonPressed(current, previous, Buttons.Y))
+            return 4;
+        if (IsNewDirectionPressed(current, previous, StickDirection.Right, false) || IsNewButtonPressed(current, previous, Buttons.B))
+            return 5;
+        if (IsNewDirectionPressed(current, previous, StickDirection.Down, false) || IsNewButtonPressed(current, previous, Buttons.A))
+            return 6;
+        if (IsNewDirectionPressed(current, previous, StickDirection.Left, false) || IsNewButtonPressed(current, previous, Buttons.X))
+            return 7;
+        return null;
+    }
+
+    private enum StickDirection
+    {
+        Up,
+        Right,
+        Down,
+        Left
+    }
+
+    private static bool IsNewDirectionPressed(GamePadState current, GamePadState previous, StickDirection direction, bool useLeftStick)
+    {
+        Vector2 currentStick = useLeftStick ? current.ThumbSticks.Left : current.ThumbSticks.Right;
+        Vector2 previousStick = useLeftStick ? previous.ThumbSticks.Left : previous.ThumbSticks.Right;
+        const float threshold = 0.5f;
+
+        bool currentPressed = direction switch
+        {
+            StickDirection.Up => currentStick.Y > threshold,
+            StickDirection.Right => currentStick.X > threshold,
+            StickDirection.Down => currentStick.Y < -threshold,
+            StickDirection.Left => currentStick.X < -threshold,
+            _ => false
+        };
+
+        bool previousPressed = direction switch
+        {
+            StickDirection.Up => previousStick.Y > threshold,
+            StickDirection.Right => previousStick.X > threshold,
+            StickDirection.Down => previousStick.Y < -threshold,
+            StickDirection.Left => previousStick.X < -threshold,
+            _ => false
+        };
+
+        return currentPressed && !previousPressed;
+    }
+
+    private static bool IsNewButtonPressed(GamePadState current, GamePadState previous, Buttons button)
+    {
+        return current.IsButtonDown(button) && previous.IsButtonUp(button);
     }
 
     private Player GetLocalPlayer()
@@ -791,6 +1402,14 @@ public class BattleManager
 
         DrawBattleLog(spriteBatch, texture, font, graphicsDevice, panelX, panelWidth);
 
+        // 绘制设置按钮
+        spriteBatch.Begin();
+        _settingsButtonRect = new Rectangle(panelX + 10, panelHeight - 45, 80, 35);
+        spriteBatch.Draw(texture, _settingsButtonRect, Color.DimGray * 0.85f);
+        DrawingHelper.DrawRectangle(spriteBatch, texture, _settingsButtonRect, Color.White, 2);
+        spriteBatch.DrawString(font, "设置", new Vector2(_settingsButtonRect.X + 15, _settingsButtonRect.Y + 5), Color.White);
+        spriteBatch.End();
+
         // 如果装备"预见"，显示双行规划框
         if (HasForesightAccessory())
         {
@@ -804,6 +1423,86 @@ public class BattleManager
         }
         
         DrawTemporaryTip(spriteBatch, texture, font, panelX, panelWidth, panelHeight);
+
+        // 绘制设置UI
+        if (_settingsUIOpen)
+        {
+            DrawSettingsUI(spriteBatch, texture, font, panelX, panelWidth, panelHeight);
+        }
+    }
+
+    /// <summary>
+    /// 绘制快捷键设置界面
+    /// </summary>
+    private void DrawSettingsUI(SpriteBatch spriteBatch, Texture2D texture, SpriteFont font, int panelX, int panelWidth, int panelHeight)
+    {
+        spriteBatch.Begin();
+
+        // 半透明遮罩
+        spriteBatch.Draw(texture, new Rectangle(panelX, 0, panelWidth, panelHeight), Color.Black * 0.6f);
+
+        // 设置窗口
+        int windowWidth = 400;
+        int windowHeight = 300;
+        int windowX = panelX + (panelWidth - windowWidth) / 2;
+        int windowY = (panelHeight - windowHeight) / 2;
+
+        var settingsWindow = new Rectangle(windowX, windowY, windowWidth, windowHeight);
+        spriteBatch.Draw(texture, settingsWindow, Color.DarkSlateGray * 0.95f);
+        DrawingHelper.DrawRectangle(spriteBatch, texture, settingsWindow, Color.Gold, 3);
+
+        // 标题
+        spriteBatch.DrawString(font, "快捷键设置", new Vector2(windowX + 20, windowY + 15), Color.Gold);
+
+        // PD跳过键设置
+        int contentY = windowY + 60;
+        int lineHeight = 60;
+
+        spriteBatch.DrawString(font, "PD跳过键：", new Vector2(windowX + 20, contentY), Color.White);
+
+        // 键盘快捷键按钮
+        _pdKeyboardButtonRect = new Rectangle(windowX + 20, contentY + 30, 150, 35);
+        Color keyboardBtnColor = _isBindingKey ? Color.Yellow : Color.DimGray;
+        spriteBatch.Draw(texture, _pdKeyboardButtonRect, keyboardBtnColor * 0.8f);
+        DrawingHelper.DrawRectangle(spriteBatch, texture, _pdKeyboardButtonRect, Color.White, 2);
+
+        string keyboardLabel = _keyBindingConfig.PDSkipKeyboard.HasValue 
+            ? _keyBindingConfig.PDSkipKeyboard.Value.ToString() 
+            : "未设置";
+        if (_isBindingKey)
+            keyboardLabel = "等待输入...";
+
+        spriteBatch.DrawString(font, $"键盘: {keyboardLabel}", new Vector2(_pdKeyboardButtonRect.X + 10, _pdKeyboardButtonRect.Y + 7), Color.White, 0f, Vector2.Zero, 0.9f, SpriteEffects.None, 0f);
+
+        // 手柄快捷键按钮
+        _pdGamePadButtonRect = new Rectangle(windowX + 200, contentY + 30, 180, 35);
+        Color gamepadBtnColor = _isBindingGamePad ? Color.Yellow : Color.DimGray;
+        spriteBatch.Draw(texture, _pdGamePadButtonRect, gamepadBtnColor * 0.8f);
+        DrawingHelper.DrawRectangle(spriteBatch, texture, _pdGamePadButtonRect, Color.White, 2);
+
+        string gamepadLabel = KeyBindingConfig.GetButtonDisplayName(_keyBindingConfig.PDSkipGamePad);
+        if (_isBindingGamePad)
+            gamepadLabel = "等待输入...";
+
+        spriteBatch.DrawString(font, $"手柄: {gamepadLabel}", new Vector2(_pdGamePadButtonRect.X + 10, _pdGamePadButtonRect.Y + 7), Color.White, 0f, Vector2.Zero, 0.9f, SpriteEffects.None, 0f);
+
+        // 绑定提示信息
+        if (!string.IsNullOrEmpty(_bindingPromptMessage))
+        {
+            Vector2 promptSize = font.MeasureString(_bindingPromptMessage);
+            spriteBatch.DrawString(font, _bindingPromptMessage, 
+                new Vector2(windowX + (windowWidth - promptSize.X) / 2, contentY + 75), 
+                Color.Cyan);
+        }
+
+        // 关闭按钮
+        _closeSettingsButtonRect = new Rectangle(windowX + (windowWidth - 100) / 2, windowY + windowHeight - 50, 100, 35);
+        spriteBatch.Draw(texture, _closeSettingsButtonRect, Color.DarkRed * 0.85f);
+        DrawingHelper.DrawRectangle(spriteBatch, texture, _closeSettingsButtonRect, Color.White, 2);
+        Vector2 closeBtnSize = font.MeasureString("关闭");
+        spriteBatch.DrawString(font, "关闭", new Vector2(_closeSettingsButtonRect.X + (100 - closeBtnSize.X) / 2, _closeSettingsButtonRect.Y + 7), Color.White);
+
+        spriteBatch.End();
     }
 
     /// <summary>
@@ -834,6 +1533,33 @@ public class BattleManager
         spriteBatch.DrawString(font, _currentTip, new Vector2(tipX, tipY), Color.Gold * alpha);
 
         spriteBatch.End();
+    }
+
+    private void DrawShortcutLabel(SpriteBatch spriteBatch, SpriteFont font, string label, Rectangle rect, Color color)
+    {
+        if (string.IsNullOrWhiteSpace(label))
+            return;
+
+        Vector2 size = font.MeasureString(label) * ShortcutLabelScale;
+        Vector2 pos = new Vector2(rect.X + (rect.Width - size.X) / 2f, rect.Y - size.Y - 4f);
+        spriteBatch.DrawString(font, label, pos, color * 0.6f, 0f, Vector2.Zero, ShortcutLabelScale, SpriteEffects.None, 0f);
+    }
+
+    private string GetPDSkipShortcutLabel()
+    {
+        var keyboardKey = _keyBindingConfig.PDSkipKeyboard;
+        var gamepadButton = _keyBindingConfig.PDSkipGamePad;
+
+        if (!keyboardKey.HasValue && !gamepadButton.HasValue)
+            return "未设置";
+
+        List<string> labels = new List<string>();
+        if (keyboardKey.HasValue)
+            labels.Add(keyboardKey.Value.ToString());
+        if (gamepadButton.HasValue)
+            labels.Add(KeyBindingConfig.GetButtonDisplayName(gamepadButton));
+
+        return string.Join(" / ", labels);
     }
 
     private void DrawPlayerHealthBar(SpriteBatch spriteBatch, Texture2D texture, SpriteFont font, int xPosition, Player player, int barW, int barH, int barTop, bool isLeft)
@@ -920,7 +1646,7 @@ public class BattleManager
                 "选择一个可用的PD骰子进行防御（AD会置灰），或点击跳过";
             spriteBatch.DrawString(font, tip, new Vector2(panelX + 20, diceAreaY - 30), Color.White);
 
-            int btnW = 140;
+            int btnW = 110;
             int btnH = 40;
             int spacing = 10;
             int startX = panelX + 20;
@@ -937,6 +1663,10 @@ public class BattleManager
                 {
                     var rect = new Rectangle(startX + i * (btnW + spacing), diceAreaY, btnW, btnH);
                     var dice = displayDice[i];
+                    string shortcutLabel = i < DiceShortcutRowPrimaryLabels.Length && i < GamePadSlotLabels.Length
+                        ? $"{DiceShortcutRowPrimaryLabels[i]} / {GamePadSlotLabels[i]}"
+                        : string.Empty;
+                    DrawShortcutLabel(spriteBatch, font, shortcutLabel, rect, Color.White);
                     bool enabled = IsDiceEnabledForContext(dice, availableNames, BattleInputContext.AttackSelection);
                     Color c = enabled ? Color.DarkSlateGray * 0.9f : Color.DimGray * 0.6f;
                     spriteBatch.Draw(texture, rect, c);
@@ -964,6 +1694,10 @@ public class BattleManager
                 {
                     var rect = new Rectangle(startX + i * (btnW + spacing), diceAreaY, btnW, btnH);
                     var dice = displayDice[i];
+                    string shortcutLabel = i < DiceShortcutRowPrimaryLabels.Length && i < GamePadSlotLabels.Length
+                        ? $"{DiceShortcutRowPrimaryLabels[i]} / {GamePadSlotLabels[i]}"
+                        : string.Empty;
+                    DrawShortcutLabel(spriteBatch, font, shortcutLabel, rect, Color.White);
                     bool enabled = IsDiceEnabledForContext(dice, availableNames, BattleInputContext.DefenseSelection);
                     Color c = enabled ? Color.DarkSlateGray * 0.9f : Color.DimGray * 0.6f;
                     spriteBatch.Draw(texture, rect, c);
@@ -987,6 +1721,7 @@ public class BattleManager
             }
 
             _skipActionButtonRect = new Rectangle(panelX + panelWidth - 120, diceAreaY, 100, btnH);
+            DrawShortcutLabel(spriteBatch, font, "Space / RT", _skipActionButtonRect, Color.White);
             spriteBatch.Draw(texture, _skipActionButtonRect, Color.DimGray * 0.9f);
             DrawingHelper.DrawRectangle(spriteBatch, texture, _skipActionButtonRect, Color.White, 2);
             spriteBatch.DrawString(font, "跳过", new Vector2(_skipActionButtonRect.X + 20, _skipActionButtonRect.Y + 8), Color.White);
@@ -1385,7 +2120,7 @@ public class BattleManager
         if (mouseState.LeftButton != ButtonState.Pressed || previousMouseState.LeftButton == ButtonState.Pressed)
             return;
 
-        int btnW = 140;
+        int btnW = 110;
         int btnH = 40;
         int spacing = 10;
         int startX = panelX + 20;
@@ -1467,7 +2202,6 @@ public class BattleManager
         Rectangle skipAdButtonRect = new Rectangle(panelX + panelWidth - skipBtnW - 20, adDiceAreaY_skip + 20, skipBtnW, skipBtnH);
         if (skipAdButtonRect.Contains(mp))
         {
-            ConfirmManualInput();
             ShowTip("跳过AD规划");
             return;
         }
@@ -1477,7 +2211,6 @@ public class BattleManager
         Rectangle skipPdButtonRect = new Rectangle(panelX + panelWidth - skipBtnW - 20, pdDiceAreaY_skip + 20, skipBtnW, skipBtnH);
         if (skipPdButtonRect.Contains(mp))
         {
-            ConfirmManualInput();
             ShowTip("跳过PD规划");
             return;
         }
@@ -1608,7 +2341,7 @@ public class BattleManager
     {
         spriteBatch.Begin();
 
-        int btnW = 140;
+        int btnW = 110;
         int btnH = 40;
         int spacing = 10;
         int startX = panelX + 20;
@@ -1631,6 +2364,10 @@ public class BattleManager
         {
             var rect = new Rectangle(startX + i * (btnW + spacing), adDiceAreaY, btnW, btnH);
             var dice = displayDice[i];
+            string shortcutLabel = i < DiceShortcutRowPrimaryLabels.Length && i < GamePadSlotLabels.Length
+                ? $"{DiceShortcutRowPrimaryLabels[i]} / {GamePadSlotLabels[i]}"
+                : string.Empty;
+            DrawShortcutLabel(spriteBatch, font, shortcutLabel, rect, Color.Cyan);
             Color c = Color.DarkSlateGray * 0.7f;
             spriteBatch.Draw(texture, rect, c);
             DrawingHelper.DrawRectangle(spriteBatch, texture, rect, Color.Cyan, 2);
@@ -1667,6 +2404,10 @@ public class BattleManager
         {
             var rect = new Rectangle(startX + i * (btnW + spacing), pdDiceAreaY, btnW, btnH);
             var dice = displayDice[i];
+            string shortcutLabel = i < DiceShortcutRowSecondaryLabels.Length && i < GamePadSlotLabels.Length
+                ? $"{DiceShortcutRowSecondaryLabels[i]} / {GamePadSlotLabels[i]}"
+                : string.Empty;
+            DrawShortcutLabel(spriteBatch, font, shortcutLabel, rect, Color.LimeGreen);
             Color c = Color.DarkSlateGray * 0.7f;
             spriteBatch.Draw(texture, rect, c);
             DrawingHelper.DrawRectangle(spriteBatch, texture, rect, Color.LimeGreen, 2);
@@ -1698,15 +2439,23 @@ public class BattleManager
         int skipBtnW = 80;
         int skipBtnH = 30;
         _skipActionButtonRect = new Rectangle(panelX + panelWidth - skipBtnW - 20, adDiceAreaY + 20, skipBtnW, skipBtnH);
+        DrawShortcutLabel(spriteBatch, font, "Space / RT", _skipActionButtonRect, Color.White);
         spriteBatch.Draw(texture, _skipActionButtonRect, Color.DimGray * 0.9f);
         DrawingHelper.DrawRectangle(spriteBatch, texture, _skipActionButtonRect, Color.White, 2);
         spriteBatch.DrawString(font, "跳过", new Vector2(_skipActionButtonRect.X + 15, _skipActionButtonRect.Y + 3), Color.White);
 
         // PD框的跳过按钮
         Rectangle skipPdButtonRect = new Rectangle(panelX + panelWidth - skipBtnW - 20, pdDiceAreaY + 20, skipBtnW, skipBtnH);
+        string pdSkipLabel = GetPDSkipShortcutLabel();
+        DrawShortcutLabel(spriteBatch, font, pdSkipLabel, skipPdButtonRect, Color.White);
         spriteBatch.Draw(texture, skipPdButtonRect, Color.DimGray * 0.9f);
         DrawingHelper.DrawRectangle(spriteBatch, texture, skipPdButtonRect, Color.White, 2);
         spriteBatch.DrawString(font, "跳过", new Vector2(skipPdButtonRect.X + 15, skipPdButtonRect.Y + 3), Color.White);
+
+        string undoHint = "Backspace / LT 撤回";
+        Vector2 undoSize = font.MeasureString(undoHint) * ShortcutLabelScale;
+        Vector2 undoPos = new Vector2(panelX + panelWidth - undoSize.X - 20, adDiceAreaY - 30);
+        spriteBatch.DrawString(font, undoHint, undoPos, Color.White * 0.6f, 0f, Vector2.Zero, ShortcutLabelScale, SpriteEffects.None, 0f);
 
         spriteBatch.End();
     }

@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace EonVientianeServer;
 
@@ -20,28 +23,51 @@ public class UserManager
         public DateTime CreatedTime { get; set; }
     }
     
+    private static readonly HashSet<string> TestUsernames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "qaz1",
+        "qaz2"
+    };
+
     private readonly Dictionary<string, UserAccount> _users = new();
     private readonly Dictionary<string, string> _tokens = new(); // token -> userId
     private readonly object _lock = new();
+    private readonly string _dataDir;
+    private readonly string _usersFile;
+    private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
     
     public UserManager()
     {
-        InitializeTestUsers();
+        _dataDir = Path.Combine("data", "users");
+        _usersFile = Path.Combine(_dataDir, "users.json");
+
+        Directory.CreateDirectory(_dataDir);
+        LoadUsers();
+        EnsureDefaultUsers();
     }
     
     /// <summary>
     /// 初始化测试用户
     /// </summary>
-    private void InitializeTestUsers()
+    private void EnsureDefaultUsers()
     {
         lock (_lock)
         {
-            CreateUserInternal("admin", "admin", "admin@example.com");
-            CreateUserInternal("user", "user", "user@example.com");
-            CreateUserInternal("test", "test", "test@example.com");
-            
-            Console.WriteLine("[Server] Test accounts initialized");
+            CreateUserIfMissing("admin", "admin", "admin@example.com");
+            CreateUserIfMissing("user", "user", "user@example.com");
+            CreateUserIfMissing("test", "test", "test@example.com");
+
+            CreateUserIfMissing("qaz1", "qaz1", "qaz1@example.com");
+            CreateUserIfMissing("qaz2", "qaz2", "qaz2@example.com");
+
+            SaveUsers();
         }
+    }
+
+    public bool IsTestAccount(string userId)
+    {
+        var username = GetUsername(userId);
+        return username != null && TestUsernames.Contains(username);
     }
     
     /// <summary>
@@ -103,8 +129,7 @@ public class UserManager
                 return (false, null, "用户名已存在");
             }
             
-            var userId = Guid.NewGuid().ToString();
-            var user = CreateUserInternal(username, password, email);
+            var user = CreateUserInternal(username, password, email, persist: true);
             
             Console.WriteLine($"[Server] User '{username}' registered successfully");
             return (true, user.UserId, null);
@@ -164,7 +189,7 @@ public class UserManager
     /// <summary>
     /// 内部创建用户
     /// </summary>
-    private UserAccount CreateUserInternal(string username, string password, string email)
+    private UserAccount CreateUserInternal(string username, string password, string email, bool persist = false)
     {
         var (hash, salt) = HashPassword(password);
         var user = new UserAccount
@@ -178,7 +203,68 @@ public class UserManager
         };
         
         _users[username] = user;
+        if (persist)
+        {
+            SaveUsers();
+        }
         return user;
+    }
+
+    private void CreateUserIfMissing(string username, string password, string email)
+    {
+        if (_users.ContainsKey(username))
+        {
+            return;
+        }
+
+        CreateUserInternal(username, password, email, persist: false);
+    }
+
+    private void LoadUsers()
+    {
+        lock (_lock)
+        {
+            if (!File.Exists(_usersFile))
+            {
+                return;
+            }
+
+            try
+            {
+                var json = File.ReadAllText(_usersFile);
+                var users = JsonSerializer.Deserialize<List<UserAccount>>(json, _jsonOptions) ?? new List<UserAccount>();
+                _users.Clear();
+
+                foreach (var user in users)
+                {
+                    if (!string.IsNullOrWhiteSpace(user.Username))
+                    {
+                        _users[user.Username] = user;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[UserManager] Failed to load users: {ex.Message}");
+            }
+        }
+    }
+
+    private void SaveUsers()
+    {
+        lock (_lock)
+        {
+            try
+            {
+                var users = _users.Values.ToList();
+                var json = JsonSerializer.Serialize(users, _jsonOptions);
+                File.WriteAllText(_usersFile, json);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[UserManager] Failed to save users: {ex.Message}");
+            }
+        }
     }
     
     /// <summary>

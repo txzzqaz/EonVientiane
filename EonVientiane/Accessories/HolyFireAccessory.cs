@@ -15,7 +15,7 @@ public class HolyFireAccessory : Accessory
             id: "holy_fire",
             name: "圣火",
             description: "沧海桑田，然后永恒",
-            function: "对局内对手每步选择若超过0.5秒，自动选择跳过。限制对手反应时间"
+            function: "对局内对手每步选择若超过0.5秒，自动选择跳过。"
         )
     {
         DisplayColor = Color.OrangeRed;

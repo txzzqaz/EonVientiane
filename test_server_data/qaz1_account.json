@@ -1,0 +1,13 @@
+{
+  "username": "qaz1",
+  "password_hash": "test_hash_qaz1",
+  "wallet": {
+    "coins": 99999,
+    "dices": ["d6_dice","error_dice","gua_sha_parquet_dice","feathered_dice","spring_breeze_dice"],
+    "accessories": ["self_accessory","wanderer_heart_accessory","holy_fire_accessory","ascension_proof_accessory","foresight_accessory","concerted_effort_accessory"]
+  },
+  "level": 10,
+  "experience": 5000,
+  "achievements": [],
+  "battle_history": []
+}

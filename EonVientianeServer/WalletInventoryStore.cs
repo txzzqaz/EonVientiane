@@ -95,26 +95,35 @@ public class WalletInventoryStore
     }
     
     /// <summary>
-    /// 将旧的库存状态转换为钱包（注意：会重新签名所有道具）
+    /// 将旧的库存状态转换为钱包（保留现有InstanceId，仅更新状态）
     /// </summary>
     private PlayerWallet ConvertInventoryStateToWallet(UserInventoryStateData state)
     {
         var wallet = _walletManager.LoadOrCreateWallet(state.UserId);
         
-        // 清空现有道具
-        wallet.Items.Clear();
-        
-        // 重新签发所有道具
+        // 更新现有道具的状态（保留InstanceId和Signature）
         foreach (var item in state.Items)
         {
-            var signedItem = _walletManager.IssueItem(
-                state.UserId,
-                item.ItemId,
-                item.ItemName,
-                item.Quantity
-            );
-            signedItem.IsEquipped = item.IsEquipped;
-            wallet.Items.Add(signedItem);
+            var existingItem = wallet.Items.FirstOrDefault(i => i.InstanceId == item.StackId);
+            if (existingItem != null)
+            {
+                // 更新装备状态和其他可变属性
+                existingItem.IsEquipped = item.IsEquipped;
+                existingItem.Quantity = item.Quantity;
+            }
+            else
+            {
+                // 如果找不到对应道具，说明是新增的（不应该发生，但作为fallback）
+                Console.WriteLine($"[警告] 在钱包中找不到道具 {item.StackId}，这可能表示数据不一致");
+                var newItem = _walletManager.IssueItem(
+                    state.UserId,
+                    item.ItemId,
+                    item.ItemName,
+                    item.Quantity
+                );
+                newItem.IsEquipped = item.IsEquipped;
+                wallet.Items.Add(newItem);
+            }
         }
         
         return wallet;

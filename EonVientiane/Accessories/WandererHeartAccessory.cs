@@ -5,7 +5,7 @@ namespace EonVientiane;
 
 /// <summary>
 /// 饰品：漫游者之心
-/// 若回合内最慢的一步选择的时间在1秒内，最终攻击点数倍率将依据时间增加（0-1秒对应10-1倍）
+/// 若回合内最慢的一步选择的时间在1秒内，最终攻击点数倍率将依据时间增加（0-1秒对应5-1倍）
 /// 描述：纯粹
 /// 获取方式：成就"秒了"（己方总行动时间在5秒内的情况下胜利）
 /// </summary>
@@ -16,7 +16,7 @@ public class WandererHeartAccessory : Accessory
             id: "wanderer_heart",
             name: "漫游者之心",
             description: "纯粹",
-            function: "若最慢一步选择时间在1秒内，最终攻击点数倍率根据时间增加：0秒=10倍，1秒=1倍。超过1秒无加成。奖励快速操作"
+            function: "若最慢一步选择时间在1秒内，最终攻击点数倍率根据时间增加：0秒=5倍，1秒=1倍。超过1秒无加成。"
         )
     {
         DisplayColor = Color.Cyan;
@@ -32,11 +32,11 @@ public class WandererHeartAccessory : Accessory
         if (slowestActionTime.TotalSeconds > 1.0)
             return 1.0;
         
-        // 0-1秒对应10-1倍
-        // 0秒 = 10倍，1秒 = 1倍
-        // 公式: 10 - (timeInSeconds * 9)
+        // 0-1秒对应5-1倍
+        // 0秒 = 5倍，1秒 = 1倍
+        // 公式: 5 - (timeInSeconds * 4)
         double timeInSeconds = slowestActionTime.TotalSeconds;
-        return 10.0 - (timeInSeconds * 9.0);
+        return 5.0 - (timeInSeconds * 4.0);
     }
     
     public override Item Clone()

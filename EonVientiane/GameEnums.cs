@@ -27,16 +27,13 @@ public enum ContentView
 }
 
 /// <summary>
-/// 输入框枚举 - 支持钱包地址和私钥
+/// 输入框枚举
 /// </summary>
 public enum InputField
 {
     None,
-    Username,           // 用户名/钱包地址（登录）
-    Password,           // 密码/私钥（登录）
-    Email,              // 已弃用
-    WalletAddress,      // 钱包地址（注册新钱包）
-    PrivateKey          // 私钥（注册新钱包）
+    WalletAddress,
+    PrivateKey
 }
 
 /// <summary>
