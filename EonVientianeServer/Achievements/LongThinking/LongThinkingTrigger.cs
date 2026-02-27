@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -10,24 +11,32 @@ public sealed class LongThinkingTrigger : IAchievementTrigger
     public IEnumerable<string> GetEligiblePlayers(AchievementTriggerContext context)
     {
         if (context.Battle == null)
+        {
+            Console.WriteLine("[LongThinkingTrigger] Battle is null!");
             return Enumerable.Empty<string>();
+        }
 
         var eligiblePlayers = new List<string>();
 
-        // 获取获胜的玩家（对手总行动时间长的玩家）
-        var winningPlayers = context.Battle.GetPlayersEligibleForLongThinkingAchievement();
-        eligiblePlayers.AddRange(winningPlayers);
+        // 检查每个玩家是否满足成就条件
+        foreach (var player in context.Battle.GetAllPlayers())
+        {
+            var opponentTime = context.Battle.GetOpponentTotalActionTime(player.PlayerId);
+            if (opponentTime.TotalSeconds >= 600)
+            {
+                eligiblePlayers.Add(player.PlayerId);
+                Console.WriteLine($"[LongThinkingTrigger] Player {player.PlayerId} is eligible for 'LongThinking' (opponentTime={opponentTime.TotalSeconds:F1}s)");
+            }
+        }
 
+        Console.WriteLine($"[LongThinkingTrigger] Total eligible players: {eligiblePlayers.Count}");
         return eligiblePlayers;
     }
 
     public int CalculateProgress(AchievementTriggerContext context, string playerId)
     {
-        if (context.Battle == null)
-            return 0;
-
-        // 计算对手的总行动时间（秒）
-        var opponentTime = context.Battle.GetOpponentTotalActionTime(playerId);
-        return (int)opponentTime.TotalSeconds;
+        // 满足条件完成，进度为1
+        Console.WriteLine($"[LongThinkingTrigger] CalculateProgress called for player {playerId}");
+        return 1;
     }
 }

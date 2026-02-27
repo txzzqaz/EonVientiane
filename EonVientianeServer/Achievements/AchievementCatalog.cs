@@ -14,7 +14,8 @@ public static class AchievementCatalog
         new WhereAmI.WhereAmIAchievement(),
         new GuashaMaster.GuashaMasterAchievement(),
         new Miracle.MiracleAchievement(),
-        new AbsoluteLuck.AbsoluteLuckAchievement()
+        new AbsoluteLuck.AbsoluteLuckAchievement(),
+        new AttackOnly.AttackOnlyAchievement()
     };
 
     public static IReadOnlyDictionary<string, IAchievementDefinition> AllById { get; } =

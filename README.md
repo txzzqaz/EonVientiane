@@ -321,13 +321,6 @@ public interface IGamePlugin
 
 ---
 
-## 📞 联系方式
-
-- **项目主页**: https://github.com/yourusername/EonVientiane
-- **问题反馈**: https://github.com/yourusername/EonVientiane/issues
-
----
-
 ## 🎯 更新日志
 
 ### v1.0.0 (2026-01-09)

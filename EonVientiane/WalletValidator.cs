@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using EonVientiane.Shared;
 
+#nullable enable
+
 namespace EonVientiane;
 
 /// <summary>
@@ -62,7 +64,7 @@ public class WalletValidator
         }
         
         var signableData = item.GetSignableData();
-        var isValid = _crypto.VerifyItemSignature(signableData, item.Signature);
+        var isValid = _crypto!.VerifyItemSignature(signableData, item.Signature);
         
         if (!isValid)
         {

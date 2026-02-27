@@ -1,0 +1,42 @@
+[
+  {
+    "UserId": "8eff7922-d3ac-4351-ad3f-cdb02f6059ae",
+    "Username": "admin",
+    "Email": "admin@example.com",
+    "PasswordHash": "bW8XbJaMv0hvZWjZmLdtI8KYhD0xcBIq\u002Beb97nGSamY=",
+    "PasswordSalt": "09e086e2-7990-45b0-bb11-72e90ff2e904",
+    "CreatedTime": "2026-02-08T12:55:09.6623116Z"
+  },
+  {
+    "UserId": "50beb86f-f73f-49db-9729-3dfef3c6ca07",
+    "Username": "user",
+    "Email": "user@example.com",
+    "PasswordHash": "RbTpR1AZ/xBX8V0ohXK2YovqzLr1O5TNrYCIaFKQ9Jk=",
+    "PasswordSalt": "9d772290-a882-4269-82b3-e872575fd397",
+    "CreatedTime": "2026-02-08T12:55:09.6623904Z"
+  },
+  {
+    "UserId": "c2a0a59b-f7b8-4500-a04e-0e8c3305049b",
+    "Username": "test",
+    "Email": "test@example.com",
+    "PasswordHash": "Bskhy9cd/7PWf5ZSBQDpKfPM9ouECAMdLkawZ8W7kZE=",
+    "PasswordSalt": "dc995ec5-098b-4d67-a5db-0a2b99e60651",
+    "CreatedTime": "2026-02-08T12:55:09.6623936Z"
+  },
+  {
+    "UserId": "bd1af55e-597c-4e19-8ec4-538a22fe4eee",
+    "Username": "qaz1",
+    "Email": "qaz1@example.com",
+    "PasswordHash": "iFpqMDUs5XUTgUQLqK7zsFGk5ucD07yzjQDeUxVg1tg=",
+    "PasswordSalt": "2dfc5f1c-c361-4659-af15-9523c9776629",
+    "CreatedTime": "2026-02-08T12:55:09.6623957Z"
+  },
+  {
+    "UserId": "563428e8-e948-4eec-9779-778ebc3a704d",
+    "Username": "qaz2",
+    "Email": "qaz2@example.com",
+    "PasswordHash": "bbGqwd4787I/B\u002BM4C/PIHqGbm2WIZqwemtYkDQND8AI=",
+    "PasswordSalt": "8ab434f8-a420-49e5-b43a-4d09c5f3fff8",
+    "CreatedTime": "2026-02-08T12:55:09.6624067Z"
+  }
+]

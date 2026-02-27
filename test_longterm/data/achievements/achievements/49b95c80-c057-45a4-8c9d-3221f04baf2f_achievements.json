@@ -1,0 +1,60 @@
+{
+  "UserId": "49b95c80-c057-45a4-8c9d-3221f04baf2f",
+  "Achievements": {
+    "first_defense": {
+      "Id": "first_defense",
+      "Progress": 0,
+      "IsCompleted": false,
+      "CompletedTime": null
+    },
+    "perfect_victory": {
+      "Id": "perfect_victory",
+      "Progress": 0,
+      "IsCompleted": false,
+      "CompletedTime": null
+    },
+    "long_thinking": {
+      "Id": "long_thinking",
+      "Progress": 0,
+      "IsCompleted": false,
+      "CompletedTime": null
+    },
+    "blitz_victory": {
+      "Id": "blitz_victory",
+      "Progress": 0,
+      "IsCompleted": false,
+      "CompletedTime": null
+    },
+    "where_am_i": {
+      "Id": "where_am_i",
+      "Progress": 0,
+      "IsCompleted": false,
+      "CompletedTime": null
+    },
+    "guasha_master": {
+      "Id": "guasha_master",
+      "Progress": 0,
+      "IsCompleted": false,
+      "CompletedTime": null
+    },
+    "miracle": {
+      "Id": "miracle",
+      "Progress": 0,
+      "IsCompleted": false,
+      "CompletedTime": null
+    },
+    "absolute_luck": {
+      "Id": "absolute_luck",
+      "Progress": 0,
+      "IsCompleted": false,
+      "CompletedTime": null
+    },
+    "attack_only": {
+      "Id": "attack_only",
+      "Progress": 0,
+      "IsCompleted": false,
+      "CompletedTime": null
+    }
+  },
+  "LastUpdated": 1770907451
+}

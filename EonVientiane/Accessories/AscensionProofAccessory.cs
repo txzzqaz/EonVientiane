@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 
 namespace EonVientiane;
@@ -81,5 +82,35 @@ public class AscensionProofAccessory : Accessory
     public string GetStatusDescription()
     {
         return $"计数器: {Counter} | 连续胜利: {ConsecutiveWins}/5";
+    }
+    
+    /// <summary>
+    /// 从Metadata加载状态
+    /// </summary>
+    public void LoadFromMetadata(Dictionary<string, string> metadata)
+    {
+        if (metadata == null) return;
+        
+        if (metadata.TryGetValue("Counter", out var counterStr) && int.TryParse(counterStr, out var counter))
+        {
+            Counter = counter;
+        }
+        
+        if (metadata.TryGetValue("ConsecutiveWins", out var winsStr) && int.TryParse(winsStr, out var wins))
+        {
+            ConsecutiveWins = wins;
+        }
+    }
+    
+    /// <summary>
+    /// 保存状态到Metadata
+    /// </summary>
+    public Dictionary<string, string> SaveToMetadata()
+    {
+        return new Dictionary<string, string>
+        {
+            { "Counter", Counter.ToString() },
+            { "ConsecutiveWins", ConsecutiveWins.ToString() }
+        };
     }
 }

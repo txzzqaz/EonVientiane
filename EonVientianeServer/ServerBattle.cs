@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using EonVientiane;
 using EonVientiane.Shared;
+using EonVientianeServer.Achievements;
 
 namespace EonVientianeServer;
 
@@ -65,6 +66,11 @@ public class ServerBattle
     /// 当前等待的输入上下文
     /// </summary>
     public BattleInputContext CurrentInputContext { get; private set; }
+
+    /// <summary>
+    /// 成就追踪器
+    /// </summary>
+    public BattleAchievementTracker AchievementTracker => _achievementTracker;
     
     // 内部战斗状态
     private List<PlayerCamp> _campTurnOrder;
@@ -75,8 +81,8 @@ public class ServerBattle
     private PendingAttack _pendingAttack;
     private Dictionary<string, int> _playerInitialHP;
     private Dictionary<string, bool> _playerTookDamage;
-    private Dictionary<string, HashSet<int>> _playerRollValues;
     private int _lastSentLogIndex = 0;
+    private readonly BattleAchievementTracker _achievementTracker;
     
     // 时间追踪
     private DateTime _battleStartTime;
@@ -86,12 +92,8 @@ public class ServerBattle
     private Dictionary<string, TimeSpan> _playerRoundSlowestActionTime; // 每个玩家在本回合的最慢一步时间（用于漫游者之心）
     private bool _currentPlayerHasHolyFireOpponent; // 当前行动的玩家是否面对装备了圣火的对手
     
-    // 成就追踪 - 飞羽闪避连续成功
-    private Dictionary<string, int> _playerFeatheredDodgeStreak; // 每个玩家使用飞羽闪避的连续成功次数
-    private Dictionary<string, bool> _playerLastDefenseWasFeatheredSuccess; // 上一次防御是否为飞羽成功闪避
-    
-    // 成就追踪 - 漫游者之心触发检测（用于"我在哪"成就）
-    private Dictionary<string, bool> _playerWandererHeartTriggered; // 追踪每个玩家的漫游者之心是否触发过增益
+    // 血痕骰子：记录下一次AD攻击的BLOP倍率
+    private Dictionary<string, int> _playerBloodTraceBonus; // 每个玩家下一次AD的BLOP倍率
     
     // 战斗统计追踪
     private Dictionary<string, int> _playerDamageDealt;    // 每个玩家造成的总伤害
@@ -126,13 +128,11 @@ public class ServerBattle
         _currentOpponentIds = new List<string>();
         _playerInitialHP = new Dictionary<string, int>();
         _playerTookDamage = new Dictionary<string, bool>();
-        _playerRollValues = new Dictionary<string, HashSet<int>>();
         _playerTotalActionTime = new Dictionary<string, TimeSpan>();
         _opponentTotalActionTime = new Dictionary<string, TimeSpan>();
         _playerRoundSlowestActionTime = new Dictionary<string, TimeSpan>();
-        _playerFeatheredDodgeStreak = new Dictionary<string, int>();
-        _playerLastDefenseWasFeatheredSuccess = new Dictionary<string, bool>();
-        _playerWandererHeartTriggered = new Dictionary<string, bool>();
+        _playerBloodTraceBonus = new Dictionary<string, int>();
+        _achievementTracker = new BattleAchievementTracker();
         
         // 初始化战斗统计字典
         _playerDamageDealt = new Dictionary<string, int>();
@@ -153,12 +153,13 @@ public class ServerBattle
             _playerDamageDealt[client.UserId] = 0;
             _playerDamageTaken[client.UserId] = 0;
             _playerDamageBlocked[client.UserId] = 0;
-            _playerWandererHeartTriggered[client.UserId] = false;
+            _playerBloodTraceBonus[client.UserId] = 0;
             _playerAttackCount[client.UserId] = 0;
             _playerDefenseCount[client.UserId] = 0;
             _playerKillCount[client.UserId] = 0;
             _playerDiceUsage[client.UserId] = new Dictionary<string, int>();
             _playerRoundSlowestActionTime[client.UserId] = TimeSpan.Zero;
+            _achievementTracker.RegisterPlayer(client.UserId);
         }
     }
     
@@ -197,20 +198,17 @@ public class ServerBattle
         // 初始化无伤跟踪
         _playerInitialHP.Clear();
         _playerTookDamage.Clear();
-        _playerRollValues.Clear();
         _playerTotalActionTime.Clear();
         _opponentTotalActionTime.Clear();
-        _playerFeatheredDodgeStreak.Clear();
-        _playerLastDefenseWasFeatheredSuccess.Clear();
+        _playerBloodTraceBonus.Clear();
+        _achievementTracker.ResetForBattle(_players.Values);
         foreach (var player in _players.Values)
         {
             _playerInitialHP[player.PlayerId] = player.MaxHP;
             _playerTookDamage[player.PlayerId] = false;
-            _playerRollValues[player.PlayerId] = new HashSet<int>();
             _playerTotalActionTime[player.PlayerId] = TimeSpan.Zero;
             _opponentTotalActionTime[player.PlayerId] = TimeSpan.Zero;
-            _playerFeatheredDodgeStreak[player.PlayerId] = 0;
-            _playerLastDefenseWasFeatheredSuccess[player.PlayerId] = false;
+            _playerBloodTraceBonus[player.PlayerId] = 0;
         }
         
         // 记录战斗开始时间
@@ -277,7 +275,7 @@ public class ServerBattle
         if (CurrentInputContext == BattleInputContext.AttackSelection && _currentPlayerHasHolyFireOpponent)
         {
             var actionTime = DateTime.UtcNow - _currentActionStartTime;
-            if (actionTime.TotalSeconds > 0.5)
+            if (HolyFireAccessory.ShouldForceSkip(actionTime))
             {
                 AddLog($"圣火效果触发！{CurrentActionPlayerId}的行动超时，强制跳过");
                 ProcessPlayerAttackChoice(CurrentActionPlayerId, null, null, null);
@@ -422,15 +420,10 @@ public class ServerBattle
         
         // 检查对手是否装备了圣火
         _currentPlayerHasHolyFireOpponent = false;
-        foreach (var opponent in opponents)
+        if (HolyFireAccessory.TryFindHolyFireOpponent(opponents, out var owner) && owner != null)
         {
-            var accessories = opponent.GetEquippedAccessories();
-            if (accessories.Any(a => a is HolyFireAccessory))
-            {
-                _currentPlayerHasHolyFireOpponent = true;
-                AddLog($"{opponent.PlayerName}装备了圣火！若行动超过0.5秒将被强制跳过");
-                break;
-            }
+            _currentPlayerHasHolyFireOpponent = true;
+            AddLog($"{owner.PlayerName}装备了圣火！若行动超过0.5秒将被强制跳过");
         }
     }
     
@@ -556,18 +549,28 @@ public class ServerBattle
 
         // 记录点数并应用戮力同心加成
         int rollValue = Math.Max(0, actionResult.AttackPower);
+        _achievementTracker.TrackRoll(attacker.PlayerId, rollValue);
         bool concertedTriggered;
-        int boostedAttackPower = ApplyConcertedEffortBonus(attacker, rollValue, actionResult.AttackPower, out concertedTriggered);
+        int boostedAttackPower = ConcertedEffortAccessory.TryApplyRollBonus(attacker, rollValue, actionResult.AttackPower, out concertedTriggered);
         if (concertedTriggered)
         {
             AddLog($"戮力同心触发！{attacker.PlayerName}的行动效果提升至{boostedAttackPower}");
         }
+
+        // 应用血痕下一次攻击增益（BLOP倍率）
+        int bloodTraceBonus = _playerBloodTraceBonus.GetValueOrDefault(playerId, 0);
+        if (BloodTraceDice.TryApplyNextAttackBonus(boostedAttackPower, bloodTraceBonus, out var enhancedAttackPower, out var bonusMessage))
+        {
+            AddLog($"{attacker.PlayerName}{bonusMessage}");
+            boostedAttackPower = enhancedAttackPower;
+            _playerBloodTraceBonus[playerId] = 0;
+        }
         
         // 应用漫游者之心倍率（基于本回合最慢的一步时间）
-        int finalAttackPower = ApplyWandererHeartMultiplier(attacker, boostedAttackPower, out bool wandererTriggered);
+        int finalAttackPower = WandererHeartAccessory.TryApplyAttackMultiplier(attacker, _playerRoundSlowestActionTime[playerId], boostedAttackPower, out bool wandererTriggered);
         if (wandererTriggered)
         {
-            _playerWandererHeartTriggered[playerId] = true;
+            _achievementTracker.MarkWandererHeartTriggered(playerId);
             AddLog($"漫游者之心触发！根据回合内最慢一步({_playerRoundSlowestActionTime[playerId].TotalSeconds:F2}秒)，攻击力调整为{finalAttackPower}");
         }
         
@@ -608,13 +611,11 @@ public class ServerBattle
         {
             defenseResult = new DefenseResult(0, attackPower, 
                 $"{defender.PlayerName}选择跳过防御，受到{attackPower}点伤害");
-            
-            // 跳过防御则中断飞羽连击
-            _playerFeatheredDodgeStreak[playerId] = 0;
-            _playerLastDefenseWasFeatheredSuccess[playerId] = false;
+            _achievementTracker.TrackFeatheredDodgeStreak(playerId, null, defenseResult);
         }
         else
         {
+            _achievementTracker.MarkUsedPD(playerId);
             selectedDice = defender.GetEquippedDice()
                 .FirstOrDefault(d => d.Name == selectedDiceName);
             
@@ -633,13 +634,19 @@ public class ServerBattle
                 ?? new DefenseResult(0, attackPower, $"{defender.PlayerName}防御失败，受到{attackPower}点伤害");
             
             // 追踪飞羽闪避连击
-            TrackFeatheredDodgeStreak(playerId, selectedDice, defenseResult);
+            _achievementTracker.TrackFeatheredDodgeStreak(playerId, selectedDice, defenseResult, AddLog);
+
+            if (selectedDice is BloodTraceDice bloodTrace && bloodTrace.LastBloodTraceRoll > 0)
+            {
+                _playerBloodTraceBonus[playerId] = bloodTrace.LastBloodTraceRoll;
+                AddLog($"{defender.PlayerName}的血痕生效：下次AD攻击增加(ATKP×{bloodTrace.LastBloodTraceRoll})");
+            }
         }
         
         var attacker = _players[_pendingAttack.AttackerId];
         var usedDice = _pendingAttack.AttackDice;
         ApplyDamage(defenseResult, defender, attacker, usedDice);
-        TrackRoll(defender.PlayerId, defenseResult.DefensePower);
+        _achievementTracker.TrackRoll(defender.PlayerId, defenseResult.DefensePower);
         
         CurrentInputContext = BattleInputContext.None;
         _pendingAttack = null;
@@ -705,7 +712,13 @@ public class ServerBattle
         
         var result = dice.ExecutePassiveAction(defender, attackDamage);
         var finalResult = result ?? new DefenseResult(0, attackDamage, $"{defender.PlayerName}防御失败，受到{attackDamage}点伤害");
-        TrackRoll(defender.PlayerId, finalResult.DefensePower);
+        _achievementTracker.TrackRoll(defender.PlayerId, finalResult.DefensePower);
+
+        if (dice is BloodTraceDice bloodTrace && bloodTrace.LastBloodTraceRoll > 0)
+        {
+            _playerBloodTraceBonus[defender.PlayerId] = bloodTrace.LastBloodTraceRoll;
+            AddLog($"{defender.PlayerName}的血痕生效：下次AD攻击增加(ATKP×{bloodTrace.LastBloodTraceRoll})");
+        }
         return finalResult;
     }
     
@@ -733,6 +746,9 @@ public class ServerBattle
                 _playerTookDamage[defender.PlayerId] = true;
                 _playerDamageTaken[defender.PlayerId] += actualDamage;
                 _playerDamageDealt[attacker.PlayerId] += actualDamage;
+                
+                // 记录伤害序列（用于"刮痧"成就检测）
+                _achievementTracker.RecordDamage(attacker.PlayerId, actualDamage);
             }
             
             AddLog($"{defender.PlayerName}受到{actualDamage}点伤害，当前HP: {defender.CurrentHP}");
@@ -753,6 +769,9 @@ public class ServerBattle
                     {
                         _playerDamageTaken[defender.PlayerId] += extraActualDamage;
                         _playerDamageDealt[attacker.PlayerId] += extraActualDamage;
+                        
+                        // 继续记录伤害序列
+                        _achievementTracker.RecordDamage(attacker.PlayerId, extraActualDamage);
                         AddLog($"{defender.PlayerName}受到额外{extraActualDamage}点伤害，当前HP: {defender.CurrentHP}");
                     }
                 }
@@ -888,7 +907,7 @@ public class ServerBattle
                 .Any();
             
             // 检查漫游者之心是否触发过
-            bool wandererTriggered = _playerWandererHeartTriggered.GetValueOrDefault(player.PlayerId, false);
+            bool wandererTriggered = _achievementTracker.HasWandererHeartTriggered(player.PlayerId);
             
             var playerStats = new PlayerBattleStats
             {
@@ -998,55 +1017,6 @@ public class ServerBattle
         AddLog($"{player.PlayerName} 认输");
         EndBattle(winner);
         return true;
-    }
-    
-    /// <summary>
-    /// 检查是否应该触发"长考"成就
-    /// </summary>
-    public List<string> GetPlayersEligibleForLongThinkingAchievement()
-    {
-        var eligiblePlayers = new List<string>();
-        
-        foreach (var playerId in _players.Keys)
-        {
-            var opponentTime = GetOpponentTotalActionTime(playerId);
-            // 10分钟 = 600秒
-            if (opponentTime.TotalSeconds >= 600)
-            {
-                eligiblePlayers.Add(playerId);
-                AddLog($"{playerId} 达成长考成就条件（对手行动时间: {opponentTime.TotalSeconds:F1}秒）");
-            }
-        }
-        
-        return eligiblePlayers;
-    }
-    
-    /// <summary>
-    /// 检查是否应该触发"秒了"成就 - 获胜者的总行动时间在5秒内
-    /// </summary>
-    public List<string> GetPlayersEligibleForBlitzVictoryAchievement()
-    {
-        var eligiblePlayers = new List<string>();
-        
-        if (WinnerCamp == null)
-            return eligiblePlayers;
-        
-        var winningTeamPlayers = _players.Values
-            .Where(p => p.Camp == WinnerCamp)
-            .ToList();
-        
-        foreach (var player in winningTeamPlayers)
-        {
-            var playerActionTime = GetPlayerTotalActionTime(player.PlayerId);
-            // 5秒内
-            if (playerActionTime.TotalSeconds <= 5.0)
-            {
-                eligiblePlayers.Add(player.PlayerId);
-                AddLog($"{player.PlayerName} 达成秒了成就条件（己方总行动时间: {playerActionTime.TotalSeconds:F2}秒）");
-            }
-        }
-        
-        return eligiblePlayers;
     }
     
     /// <summary>
@@ -1188,140 +1158,6 @@ public class ServerBattle
     /// </summary>
     public Dictionary<string, (bool hasRolls, int? uniformValue)> GetPlayerRollUniformity()
     {
-        var result = new Dictionary<string, (bool hasRolls, int? uniformValue)>();
-
-        foreach (var kvp in _playerRollValues)
-        {
-            bool hasRolls = kvp.Value.Count > 0;
-            int? uniformValue = kvp.Value.Count == 1 ? kvp.Value.First() : null;
-            result[kvp.Key] = (hasRolls, uniformValue);
-        }
-
-        return result;
-    }
-    
-    /// <summary>
-    /// 追踪飞羽闪避连击
-    /// </summary>
-    private void TrackFeatheredDodgeStreak(string playerId, Dice usedDice, DefenseResult defenseResult)
-    {
-        // 检查是否使用的是飞羽骰子
-        if (usedDice is FeatheredDice)
-        {
-            // 检查是否成功闪避（实际伤害为0）
-            if (defenseResult.ActualDamage == 0)
-            {
-                // 成功闪避，增加连击
-                _playerFeatheredDodgeStreak[playerId]++;
-                _playerLastDefenseWasFeatheredSuccess[playerId] = true;
-                
-                AddLog($"[成就追踪] {playerId} 飞羽连续闪避成功 {_playerFeatheredDodgeStreak[playerId]} 次");
-            }
-            else
-            {
-                // 闪避失败，重置连击
-                _playerFeatheredDodgeStreak[playerId] = 0;
-                _playerLastDefenseWasFeatheredSuccess[playerId] = false;
-            }
-        }
-        else
-        {
-            // 使用了其他骰子，重置连击
-            _playerFeatheredDodgeStreak[playerId] = 0;
-            _playerLastDefenseWasFeatheredSuccess[playerId] = false;
-        }
-    }
-
-    /// <summary>
-    /// 记录玩家本局内的掷骰点数
-    /// </summary>
-    private void TrackRoll(string playerId, int rollValue)
-    {
-        if (rollValue <= 0)
-            return;
-
-        if (_playerRollValues.TryGetValue(playerId, out var rolls))
-        {
-            rolls.Add(rollValue);
-        }
-    }
-
-    /// <summary>
-    /// 应用戮力同心的连号加成
-    /// </summary>
-    private int ApplyConcertedEffortBonus(Player attacker, int rollValue, int baseAttackPower, out bool triggered)
-    {
-        triggered = false;
-
-        // 记录掷骰点数，确保后续成就统计可用
-        TrackRoll(attacker.PlayerId, rollValue);
-
-        if (rollValue <= 0)
-            return baseAttackPower;
-
-        var accessory = attacker.GetEquippedAccessories()
-            .OfType<ConcertedEffortAccessory>()
-            .FirstOrDefault();
-
-        if (accessory == null)
-            return baseAttackPower;
-
-        return accessory.ApplyRollBonus(rollValue, baseAttackPower, out triggered);
-    }
-    
-    /// <summary>
-    /// 应用漫游者之心的攻击倍率加成
-    /// 根据本回合最慢的一步选择时间来调整攻击力
-    /// </summary>
-    /// <param name="triggered">输出参数，表示是否触发了增益（倍率>1.0）</param>
-    private int ApplyWandererHeartMultiplier(Player attacker, int baseAttackPower, out bool triggered)
-    {
-        triggered = false;
-        
-        var accessory = attacker.GetEquippedAccessories()
-            .OfType<WandererHeartAccessory>()
-            .FirstOrDefault();
-
-        if (accessory == null)
-            return baseAttackPower;
-
-        // 获取这个玩家在本回合最慢的一步时间
-        if (!_playerRoundSlowestActionTime.TryGetValue(attacker.PlayerId, out var slowestTime))
-        {
-            return baseAttackPower;
-        }
-
-        // 使用漫游者之心的倍率计算方法
-        double multiplier = accessory.GetAttackMultiplier(slowestTime);
-        
-        // 应用倍率
-        int finalAttackPower = (int)Math.Round(baseAttackPower * multiplier);
-        
-        // 如果倍率大于1.0，说明触发了增益
-        if (multiplier > 1.0)
-        {
-            triggered = true;
-        }
-        
-        return finalAttackPower;
-    }
-    
-    /// <summary>
-    /// 检查是否应该触发"奇迹"成就 - 一局内使用飞羽骰子进行闪避连续成功5次
-    /// </summary>
-    public List<string> GetPlayersEligibleForMiracleAchievement()
-    {
-        var eligiblePlayers = new List<string>();
-        
-        foreach (var kvp in _playerFeatheredDodgeStreak)
-        {
-            if (kvp.Value >= 5)
-            {
-                eligiblePlayers.Add(kvp.Key);
-                AddLog($"{kvp.Key} 达成奇迹成就条件（飞羽连续闪避成功 {kvp.Value} 次）");
-            }
-        }
-        
-        return eligiblePlayers;
+        return _achievementTracker.GetRollUniformity();
     }
 }

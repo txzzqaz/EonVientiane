@@ -1473,7 +1473,6 @@ public class BattleManager
 
         // PD跳过键设置
         int contentY = windowY + 60;
-        int lineHeight = 60;
 
         spriteBatch.DrawString(font, "PD跳过键：", new Vector2(windowX + 20, contentY), Color.White);
 

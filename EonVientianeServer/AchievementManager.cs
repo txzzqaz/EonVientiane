@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
 using EonVientiane.Shared;
 using EonVientianeServer.Achievements;
 
@@ -8,6 +10,7 @@ namespace EonVientianeServer;
 
 /// <summary>
 /// 服务端成就管理器 - 管理用户成就进度和数据保存
+/// 支持RSA签名和基于文件的持久化，确保成就数据与玩家账号绑定
 /// </summary>
 public class AchievementManager
 {
@@ -15,6 +18,7 @@ public class AchievementManager
     {
         public string UserId { get; set; } = string.Empty;
         public Dictionary<string, AchievementProgress> Achievements { get; set; } = new();
+        public long LastUpdated { get; set; }
     }
 
     private class AchievementProgress
@@ -25,38 +29,64 @@ public class AchievementManager
         public DateTime? CompletedTime { get; set; }
     }
 
-    private readonly Dictionary<string, UserAchievements> _userAchievements = new();
+    private readonly Dictionary<string, UserAchievements> _cache = new();
     private readonly object _lock = new();
+    private readonly string _achievementsDir;
+    private readonly string _keysFile;
+    private readonly WalletCrypto _crypto;
+    private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
 
-    public AchievementManager()
+    public AchievementManager(string dataDir = "data/achievements")
     {
-        InitializeDefaultAchievements();
+        _achievementsDir = Path.Combine(dataDir, "achievements");
+        _keysFile = Path.Combine(dataDir, "achievement_keys.xml");
+        
+        Directory.CreateDirectory(_achievementsDir);
+        Directory.CreateDirectory(dataDir);
+        
+        // 复用服务器的加密密钥系统
+        _crypto = InitializeKeys();
+        
+        Console.WriteLine("[AchievementManager] Initialized with RSA-2048 encryption and file persistence");
+    }
+    
+    /// <summary>
+    /// 获取公钥（用于客户端验证）
+    /// </summary>
+    public string GetPublicKey()
+    {
+        return _crypto.ExportPublicKey();
     }
 
     /// <summary>
-    /// 初始化默认成就数据
+    /// 为成就数据生成签名
+    /// </summary>
+    private void SignAchievement(AchievementDto achievement)
+    {
+        achievement.IssuedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var signableData = achievement.GetSignableData();
+        achievement.Signature = _crypto.SignItemData(signableData);
+    }
+    
+    /// <summary>
+    /// 验证成就签名
+    /// </summary>
+    public bool VerifyAchievement(AchievementDto achievement)
+    {
+        if (string.IsNullOrEmpty(achievement.Signature))
+            return false;
+            
+        var signableData = achievement.GetSignableData();
+        return _crypto.VerifyItemSignature(signableData, achievement.Signature);
+    }
+
+    /// <summary>
+    /// 初始化默认成就数据（仅用于测试用户）
     /// </summary>
     private void InitializeDefaultAchievements()
     {
-        var defaultAchievementIds = AchievementCatalog.DefaultIds;
-
-        // 预初始化测试用户的成就
-        var testUsers = new[] { "admin", "user", "test" };
-        foreach (var userId in testUsers)
-        {
-            var userAchievements = new UserAchievements { UserId = userId };
-            foreach (var achievementId in defaultAchievementIds)
-            {
-                userAchievements.Achievements[achievementId] = new AchievementProgress
-                {
-                    Id = achievementId,
-                    Progress = 0,
-                    IsCompleted = false,
-                    CompletedTime = null
-                };
-            }
-            _userAchievements[userId] = userAchievements;
-        }
+        // 不再预初始化，改为按需加载
+        Console.WriteLine("[AchievementManager] Achievement data will be loaded on-demand from files");
     }
 
     /// <summary>
@@ -66,19 +96,16 @@ public class AchievementManager
     {
         lock (_lock)
         {
-            if (!_userAchievements.TryGetValue(userId, out var userAchievements))
-            {
-                // 如果用户不存在，为其创建默认成就
-                userAchievements = CreateDefaultAchievementsForUser(userId);
-                Console.WriteLine($"[Server] Created default achievements for new user '{userId}'");
-            }
+            // 从文件加载或创建用户成就
+            var userAchievements = LoadOrCreateUserAchievements(userId);
 
             var achievements = userAchievements.Achievements.Values.Select(a =>
             {
                 var definition = GetDefinition(a.Id);
-                return new AchievementDto
+                var dto = new AchievementDto
                 {
                     Id = a.Id,
+                    UserId = userId,
                     Name = definition.Name,
                     Description = definition.Description,
                     LockedHint = definition.LockedHint,
@@ -90,9 +117,13 @@ public class AchievementManager
                     CompletedTime = a.CompletedTime,
                     Rewards = definition.Rewards.ToList()
                 };
+                
+                // 为每个成就生成签名
+                SignAchievement(dto);
+                return dto;
             }).ToList();
             
-            Console.WriteLine($"[Server] Retrieved {achievements.Count} achievements for user '{userId}'");
+            Console.WriteLine($"[AchievementManager] Retrieved {achievements.Count} signed achievements for user '{userId}'");
             return achievements;
         }
     }
@@ -105,21 +136,17 @@ public class AchievementManager
     {
         lock (_lock)
         {
-            if (!_userAchievements.TryGetValue(userId, out var userAchievements))
-            {
-                userAchievements = CreateDefaultAchievementsForUser(userId);
-                Console.WriteLine($"[Server] Created default achievements for user '{userId}' during update");
-            }
+            var userAchievements = LoadOrCreateUserAchievements(userId);
 
             if (!userAchievements.Achievements.TryGetValue(achievementId, out var progress))
             {
-                Console.WriteLine($"[Server] Achievement '{achievementId}' not found for user '{userId}'");
+                Console.WriteLine($"[AchievementManager] Achievement '{achievementId}' not found for user '{userId}'");
                 return (false, false, 0, $"成就'{achievementId}'不存在");
             }
 
             if (progress.IsCompleted)
             {
-                Console.WriteLine($"[Server] Achievement '{achievementId}' already completed for user '{userId}'");
+                Console.WriteLine($"[AchievementManager] Achievement '{achievementId}' already completed for user '{userId}'");
                 return (true, true, progress.Progress, null);
             }
 
@@ -133,12 +160,15 @@ public class AchievementManager
                 progress.IsCompleted = true;
                 progress.CompletedTime = DateTime.UtcNow;
                 isNowCompleted = true;
-                Console.WriteLine($"[Server] User '{userId}' completed achievement '{achievementId}' ({GetDefinition(achievementId).Name})");
+                Console.WriteLine($"[AchievementManager] User '{userId}' completed achievement '{achievementId}' ({GetDefinition(achievementId).Name})");
             }
             else
             {
-                Console.WriteLine($"[Server] User '{userId}' progressed achievement '{achievementId}' from {previousProgress} to {progress.Progress}/{requiredProgress}");
+                Console.WriteLine($"[AchievementManager] User '{userId}' progressed achievement '{achievementId}' from {previousProgress} to {progress.Progress}/{requiredProgress}");
             }
+
+            // 保存到文件
+            SaveUserAchievements(userAchievements);
 
             return (true, isNowCompleted, progress.Progress, null);
         }
@@ -149,7 +179,11 @@ public class AchievementManager
     /// </summary>
     private UserAchievements CreateDefaultAchievementsForUser(string userId)
     {
-        var userAchievements = new UserAchievements { UserId = userId };
+        var userAchievements = new UserAchievements 
+        { 
+            UserId = userId,
+            LastUpdated = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+        };
         var defaultAchievementIds = AchievementCatalog.DefaultIds;
 
         foreach (var achievementId in defaultAchievementIds)
@@ -163,8 +197,91 @@ public class AchievementManager
             };
         }
 
-        _userAchievements[userId] = userAchievements;
         return userAchievements;
+    }
+    
+    /// <summary>
+    /// 加载或创建用户成就数据
+    /// </summary>
+    private UserAchievements LoadOrCreateUserAchievements(string userId)
+    {
+        // 检查缓存
+        if (_cache.TryGetValue(userId, out var cached))
+        {
+            return cached;
+        }
+        
+        var path = GetAchievementsPath(userId);
+        UserAchievements userAchievements;
+        
+        if (File.Exists(path))
+        {
+            // 从文件加载
+            var json = File.ReadAllText(path);
+            userAchievements = JsonSerializer.Deserialize<UserAchievements>(json, _jsonOptions) 
+                ?? CreateDefaultAchievementsForUser(userId);
+            Console.WriteLine($"[AchievementManager] Loaded achievements from file for user '{userId}'");
+        }
+        else
+        {
+            // 创建新的成就数据
+            userAchievements = CreateDefaultAchievementsForUser(userId);
+            SaveUserAchievements(userAchievements);
+            Console.WriteLine($"[AchievementManager] Created new achievements file for user '{userId}'");
+        }
+        
+        _cache[userId] = userAchievements;
+        return userAchievements;
+    }
+    
+    /// <summary>
+    /// 保存用户成就数据到文件
+    /// </summary>
+    private void SaveUserAchievements(UserAchievements userAchievements)
+    {
+        userAchievements.LastUpdated = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var path = GetAchievementsPath(userAchievements.UserId);
+        var json = JsonSerializer.Serialize(userAchievements, _jsonOptions);
+        File.WriteAllText(path, json);
+        
+        // 更新缓存
+        _cache[userAchievements.UserId] = userAchievements;
+    }
+    
+    /// <summary>
+    /// 获取用户成就文件路径
+    /// </summary>
+    private string GetAchievementsPath(string userId)
+    {
+        return Path.Combine(_achievementsDir, $"{userId}_achievements.json");
+    }
+    
+    /// <summary>
+    /// 初始化或加载加密密钥
+    /// </summary>
+    private WalletCrypto InitializeKeys()
+    {
+        if (File.Exists(_keysFile))
+        {
+            var keyXml = File.ReadAllText(_keysFile);
+            Console.WriteLine("[AchievementManager] Loaded existing encryption keys");
+            return WalletCrypto.CreateServerInstance(keyXml);
+        }
+        else
+        {
+            var crypto = WalletCrypto.CreateServerInstance();
+            var privateKey = crypto.ExportPrivateKey();
+            File.WriteAllText(_keysFile, privateKey);
+            
+            var publicKey = crypto.ExportPublicKey();
+            var publicKeyFile = Path.Combine(Path.GetDirectoryName(_keysFile) ?? ".", "achievement_public_key.xml");
+            File.WriteAllText(publicKeyFile, publicKey);
+            
+            Console.WriteLine("[AchievementManager] Generated new RSA key pair for achievements");
+            Console.WriteLine($"[AchievementManager] Public key saved to: {publicKeyFile}");
+            
+            return crypto;
+        }
     }
 
     private IAchievementDefinition GetDefinition(string achievementId)
@@ -190,6 +307,7 @@ public class AchievementManager
     /// </summary>
     public List<(string PlayerId, string AchievementId)> CheckBattleEndAchievements(AchievementTriggerContext context)
     {
+        Console.WriteLine("[AchievementManager] CheckBattleEndAchievements started");
         var completedAchievements = new List<(string PlayerId, string AchievementId)>();
 
         foreach (var achievementId in AchievementCatalog.DefaultIds)
@@ -201,24 +319,32 @@ public class AchievementManager
             if (trigger.TriggerType != AchievementTriggerType.BattleEnd)
                 continue;
 
+            Console.WriteLine($"[AchievementManager] Checking achievement: {achievementId}");
+
             // 获取符合条件的玩家
             var eligiblePlayers = trigger.GetEligiblePlayers(context);
+            var playerList = eligiblePlayers.ToList();
+            Console.WriteLine($"[AchievementManager] Achievement '{achievementId}' has {playerList.Count} eligible players");
 
-            foreach (var playerId in eligiblePlayers)
+            foreach (var playerId in playerList)
             {
                 // 计算进度
                 int progress = trigger.CalculateProgress(context, playerId);
+                Console.WriteLine($"[AchievementManager] Player {playerId} progress for {achievementId}: {progress}");
 
                 // 更新成就
                 var (success, isCompleted, _, _) = UpdateAchievementProgress(playerId, achievementId, progress);
+                Console.WriteLine($"[AchievementManager] Updated achievement {achievementId} for player {playerId}: success={success}, completed={isCompleted}");
 
                 if (success && isCompleted)
                 {
                     completedAchievements.Add((playerId, achievementId));
+                    Console.WriteLine($"[AchievementManager] Achievement {achievementId} completed for player {playerId}!");
                 }
             }
         }
 
+        Console.WriteLine($"[AchievementManager] Total completed achievements: {completedAchievements.Count}");
         return completedAchievements;
     }
 
@@ -255,10 +381,7 @@ public class AchievementManager
     {
         lock (_lock)
         {
-            if (!_userAchievements.TryGetValue(userId, out var userAchievements))
-            {
-                return (0, AchievementCatalog.DefaultIds.Count, 0);
-            }
+            var userAchievements = LoadOrCreateUserAchievements(userId);
 
             int total = userAchievements.Achievements.Count;
             int completed = userAchievements.Achievements.Count(kvp => kvp.Value.IsCompleted);

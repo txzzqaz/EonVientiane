@@ -465,6 +465,7 @@ public static class ItemFactory
         _registry.RegisterItem("guasha_parquet", () => new GuaShaParquetDice());
         _registry.RegisterItem("spring_breeze", () => new SpringBreezeDice());
         _registry.RegisterItem("error_dice", () => new ErrorDice());
+        _registry.RegisterItem("blood_trace", () => new BloodTraceDice());
         
         // 【新增骰子请在这里添加】
         // _registry.RegisterItem("your_dice_id", () => new YourDiceClass());
@@ -538,7 +539,7 @@ public static class ItemFactory
     /// </summary>
     public static IEnumerable<string> GetAllDiceIds()
     {
-        return new[] { "d6_dice", "feathered_dice", "guasha_parquet", "spring_breeze", "error_dice" };
+        return new[] { "d6_dice", "feathered_dice", "guasha_parquet", "spring_breeze", "error_dice", "blood_trace" };
     }
     
     /// <summary>

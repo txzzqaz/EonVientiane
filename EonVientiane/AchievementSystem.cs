@@ -10,6 +10,7 @@ namespace EonVientiane;
 
 /// <summary>
 /// 成就系统 - 管理游戏内的成就和奖励，支持客户端与服务器同步
+/// 支持RSA签名验证，确保成就数据来源可信
 /// </summary>
 public class AchievementSystem
 {
@@ -80,6 +81,7 @@ public class AchievementSystem
     private InventoryManager _inventoryManager;
     private MultiplayerLobbyManager? _lobbyManager;
     private DateTime _lastServerSync = DateTime.MinValue;
+    private WalletCrypto? _crypto; // 用于验证成就签名
 
     // 事件：成就完成时触发
     public event Action<Achievement>? AchievementCompleted;
@@ -96,6 +98,54 @@ public class AchievementSystem
     {
         _inventoryManager = inventoryManager;
         InitializeDefaultAchievements();
+    }
+    
+    /// <summary>
+    /// 设置加密公钥（从服务器获取）
+    /// </summary>
+    public void SetPublicKey(string publicKeyXml)
+    {
+        _crypto = WalletCrypto.CreateClientInstance(publicKeyXml);
+        Console.WriteLine("[Client] AchievementSystem encryption key set for signature verification");
+    }
+    
+    /// <summary>
+    /// 验证成就签名
+    /// </summary>
+    public bool VerifyAchievement(global::EonVientiane.Shared.AchievementDto achievement)
+    {
+        if (_crypto == null)
+        {
+            Console.WriteLine("[Client] WARNING: Cannot verify achievement - crypto not initialized");
+            return false;
+        }
+
+        var achievementType = achievement.GetType();
+        var signatureProp = achievementType.GetProperty("Signature");
+        var signableMethod = achievementType.GetMethod("GetSignableData", Type.EmptyTypes);
+
+        if (signatureProp == null || signableMethod == null)
+        {
+            Console.WriteLine($"[Client] WARNING: Achievement '{achievement.Id}' does not support signature verification");
+            return true;
+        }
+
+        var signature = signatureProp.GetValue(achievement) as string;
+        if (string.IsNullOrEmpty(signature))
+        {
+            Console.WriteLine($"[Client] WARNING: Achievement '{achievement.Id}' has no signature");
+            return false;
+        }
+
+        var signableData = signableMethod.Invoke(achievement, null) as string ?? string.Empty;
+        bool isValid = _crypto.VerifyItemSignature(signableData, signature);
+        
+        if (!isValid)
+        {
+            Console.WriteLine($"[Client] WARNING: Achievement '{achievement.Id}' signature verification failed!");
+        }
+        
+        return isValid;
     }
 
     /// <summary>
@@ -352,7 +402,7 @@ public class AchievementSystem
     /// <summary>
     /// 从服务端数据加载成就状态
     /// </summary>
-    public void SyncWithServer(List<AchievementDto> serverData)
+    public void SyncWithServer(List<global::EonVientiane.Shared.AchievementDto> serverData)
     {
         try
         {
@@ -361,9 +411,22 @@ public class AchievementSystem
 
             _serverAchievements.Clear();
             _achievements.Clear();
+            
+            int validCount = 0;
+            int invalidCount = 0;
 
             foreach (var dto in serverData)
             {
+                // 验证成就签名
+                if (_crypto != null && !VerifyAchievement(dto))
+                {
+                    Console.WriteLine($"[Client] WARNING: Skipping achievement '{dto.Id}' - invalid signature!");
+                    invalidCount++;
+                    continue;
+                }
+                
+                validCount++;
+
                 var achievement = new Achievement
                 {
                     Id = dto.Id,
@@ -391,8 +454,15 @@ public class AchievementSystem
             }
 
             _lastServerSync = DateTime.UtcNow;
-            SyncCompleted?.Invoke($"成功同步 {_achievements.Count} 个成就");
-            Console.WriteLine($"[Client] Achievement sync completed, {_achievements.Count} achievements loaded");
+            
+            string syncMessage = $"成功同步 {validCount} 个成就";
+            if (invalidCount > 0)
+            {
+                syncMessage += $" ({invalidCount} 个签名无效被跳过)";
+            }
+            
+            SyncCompleted?.Invoke(syncMessage);
+            Console.WriteLine($"[Client] Achievement sync completed: {validCount} valid, {invalidCount} invalid");
         }
         catch (Exception ex)
         {

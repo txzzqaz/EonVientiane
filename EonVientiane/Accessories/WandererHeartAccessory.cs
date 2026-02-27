@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using System;
+using System.Linq;
 
 namespace EonVientiane;
 
@@ -37,6 +38,34 @@ public class WandererHeartAccessory : Accessory
         // 公式: 5 - (timeInSeconds * 4)
         double timeInSeconds = slowestActionTime.TotalSeconds;
         return 5.0 - (timeInSeconds * 4.0);
+    }
+
+    /// <summary>
+    /// 静态便捷方法：尝试为玩家应用漫游者之心倍率
+    /// </summary>
+    public static int TryApplyAttackMultiplier(Player attacker, TimeSpan slowestActionTime, int baseAttackPower, out bool triggered)
+    {
+        triggered = false;
+
+        if (attacker == null)
+            return baseAttackPower;
+
+        var accessory = attacker.GetEquippedAccessories()
+            .OfType<WandererHeartAccessory>()
+            .FirstOrDefault();
+
+        if (accessory == null)
+            return baseAttackPower;
+
+        double multiplier = accessory.GetAttackMultiplier(slowestActionTime);
+        int finalAttackPower = (int)Math.Round(baseAttackPower * multiplier);
+
+        if (multiplier > 1.0)
+        {
+            triggered = true;
+        }
+
+        return finalAttackPower;
     }
     
     public override Item Clone()

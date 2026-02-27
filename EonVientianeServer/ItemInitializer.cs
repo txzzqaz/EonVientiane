@@ -69,6 +69,7 @@ public class ItemInitializer
             ("spring_breeze", "春风"),
             ("guasha_parquet", "刮痧师傅"),
             ("error_dice", "ERROR"),
+            ("blood_trace", "血痕"),
             // 【新增骰子在这里添加】
             
             // ────────────────── 饰品类 ──────────────────
@@ -166,6 +167,7 @@ public class ItemInitializer
             "spring_breeze" => new SpringBreezeDice(),
             "guasha_parquet" => new GuaShaParquetDice(),
             "error_dice" => new ErrorDice(),
+            "blood_trace" => new BloodTraceDice(),
             // 【新增骰子在这里添加】
             
             // ──────────────────── 饰品 ────────────────────
@@ -179,5 +181,43 @@ public class ItemInitializer
             
             _ => null
         };
+    }
+    
+    /// <summary>
+    /// 【★ 从SignedItem创建装备实例 ★】
+    /// 
+    /// 从SignedItem（钱包系统）创建装备实例，并恢复metadata中的状态。
+    /// 用于新的钱包系统，支持道具状态持久化。
+    /// </summary>
+    public static Equipment? CreateItemFromSignedItem(SignedItem signedItem)
+    {
+        Equipment? equipment = signedItem.ItemId switch
+        {
+            // ──────────────────── 骰子 ────────────────────
+            "d6_dice" => new D6Dice(DiceUsageType.Both),
+            "feathered_dice" => new FeatheredDice(),
+            "spring_breeze" => new SpringBreezeDice(),
+            "guasha_parquet" => new GuaShaParquetDice(),
+            "error_dice" => new ErrorDice(),
+            "blood_trace" => new BloodTraceDice(),
+            
+            // ──────────────────── 饰品 ────────────────────
+            "self_accessory" => new SelfAccessory(),
+            "ascension_proof" => new AscensionProofAccessory(),
+            "wanderer_heart" => new WandererHeartAccessory(),
+            "foresight" => new ForesightAccessory(),
+            "concerted_effort" => new ConcertedEffortAccessory(),
+            "holy_fire" => new HolyFireAccessory(),
+            
+            _ => null
+        };
+        
+        // 特殊处理：飞升之证需要从metadata恢复状态
+        if (equipment is AscensionProofAccessory ascensionProof && signedItem.Metadata != null)
+        {
+            ascensionProof.LoadFromMetadata(signedItem.Metadata);
+        }
+        
+        return equipment;
     }
 }

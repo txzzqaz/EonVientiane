@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
+using static EonVientiane.RankTier;
+
 namespace EonVientiane;
 
 /// <summary>
@@ -301,13 +303,30 @@ public class PlayerBuilder
         return this;
     }
     
+    private RankTier _rankTier = RankTier.Stardust;
+    private int _rankScore = 0;
+
+    public PlayerBuilder WithRankTier(RankTier tier)
+    {
+        _rankTier = tier;
+        return this;
+    }
+
+    public PlayerBuilder WithRankScore(int score)
+    {
+        _rankScore = score;
+        return this;
+    }
+
     public Player Build()
     {
         var player = new Player(_playerId, _playerName, _camp)
         {
             MaxHP = _maxHP,
             CurrentHP = _currentHP,
-            ShieldLayers = _shieldLayers
+            ShieldLayers = _shieldLayers,
+            RankTier = _rankTier,
+            RankScore = _rankScore
         };
         
         foreach (var equipment in _equipment)

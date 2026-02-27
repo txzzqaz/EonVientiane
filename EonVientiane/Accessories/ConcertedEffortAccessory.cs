@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using System;
+using System.Linq;
 
 namespace EonVientiane;
 
@@ -51,6 +52,26 @@ public class ConcertedEffortAccessory : Accessory
             boosted = int.MaxValue;
         }
         return (int)boosted;
+    }
+
+    /// <summary>
+    /// 静态便捷方法：尝试为玩家应用戮力同心加成
+    /// </summary>
+    public static int TryApplyRollBonus(Player attacker, int currentRoll, int baseEffect, out bool triggered)
+    {
+        triggered = false;
+
+        if (attacker == null)
+            return baseEffect;
+
+        var accessory = attacker.GetEquippedAccessories()
+            .OfType<ConcertedEffortAccessory>()
+            .FirstOrDefault();
+
+        if (accessory == null)
+            return baseEffect;
+
+        return accessory.ApplyRollBonus(currentRoll, baseEffect, out triggered);
     }
 
     public override Item Clone()

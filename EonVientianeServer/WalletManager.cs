@@ -105,6 +105,15 @@ public class WalletManager
     }
     
     /// <summary>
+    /// 重新签名道具（用于装备状态/数量等可变字段更新后）
+    /// </summary>
+    public void RefreshItemSignature(SignedItem item)
+    {
+        var signableData = item.GetSignableData();
+        item.Signature = _crypto.SignItemData(signableData);
+    }
+    
+    /// <summary>
     /// 加载或创建玩家钱包
     /// </summary>
     public PlayerWallet LoadOrCreateWallet(string userId, List<InitialInventoryItem>? initialItems = null)
@@ -130,8 +139,14 @@ public class WalletManager
                 if (invalidItems.Any())
                 {
                     Console.WriteLine($"[WalletManager] WARNING: User {userId} has {invalidItems.Count} invalid items!");
-                    // 移除无效道具
-                    wallet.Items.RemoveAll(item => !VerifyItem(item));
+                    // 重新签名可能因装备状态/数量变更导致失效的道具
+                    foreach (var item in invalidItems)
+                    {
+                        RefreshItemSignature(item);
+                    }
+
+                    wallet.LastUpdated = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                    SaveWalletInternal(wallet);
                 }
             }
             else
@@ -170,6 +185,14 @@ public class WalletManager
     {
         lock (_lock)
         {
+            foreach (var item in wallet.Items)
+            {
+                if (!VerifyItem(item))
+                {
+                    RefreshItemSignature(item);
+                }
+            }
+
             wallet.LastUpdated = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             _cache[wallet.UserId] = CloneWallet(wallet);
             SaveWalletInternal(wallet);

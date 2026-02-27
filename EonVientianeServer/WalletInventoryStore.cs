@@ -95,13 +95,13 @@ public class WalletInventoryStore
     }
     
     /// <summary>
-    /// 将旧的库存状态转换为钱包（保留现有InstanceId，仅更新状态）
+    /// 将旧的库存状态转换为钱包（保留现有InstanceId，必要时重新签名）
     /// </summary>
     private PlayerWallet ConvertInventoryStateToWallet(UserInventoryStateData state)
     {
         var wallet = _walletManager.LoadOrCreateWallet(state.UserId);
         
-        // 更新现有道具的状态（保留InstanceId和Signature）
+        // 更新现有道具的状态（保留InstanceId，变更后重新签名）
         foreach (var item in state.Items)
         {
             var existingItem = wallet.Items.FirstOrDefault(i => i.InstanceId == item.StackId);
@@ -110,6 +110,7 @@ public class WalletInventoryStore
                 // 更新装备状态和其他可变属性
                 existingItem.IsEquipped = item.IsEquipped;
                 existingItem.Quantity = item.Quantity;
+                _walletManager.RefreshItemSignature(existingItem);
             }
             else
             {
@@ -122,6 +123,7 @@ public class WalletInventoryStore
                     item.Quantity
                 );
                 newItem.IsEquipped = item.IsEquipped;
+                _walletManager.RefreshItemSignature(newItem);
                 wallet.Items.Add(newItem);
             }
         }

@@ -5,6 +5,22 @@ using System.Linq;
 namespace EonVientiane;
 
 /// <summary>
+/// 排位段位枚举
+/// </summary>
+public enum RankTier
+{
+    Stardust,   // 星尘
+    Moonlight,  // 月辉
+    Sunblaze,   // 日曜
+    Galaxy,     // 天河
+    Genesis,    // 创生
+    AllCreation,// 万物
+    Transcend,  // 超脱
+    Infinite,   // 无限
+    Eternal     // 永恒
+}
+
+/// <summary>
 /// 玩家阵营枚举
 /// </summary>
 public enum PlayerCamp
@@ -22,6 +38,16 @@ public class Player
     /// 玩家唯一标识
     /// </summary>
     public string PlayerId { get; set; }
+
+    /// <summary>
+    /// 当前排位段位
+    /// </summary>
+    public RankTier RankTier { get; set; }
+
+    /// <summary>
+    /// 当前段位分
+    /// </summary>
+    public int RankScore { get; set; }
     
     /// <summary>
     /// 玩家名称
@@ -103,6 +129,9 @@ public class Player
         PlannedActionsAD = new Dictionary<string, PlannedActionSequence>();
         PlannedActionsPD = new Dictionary<string, PlannedActionSequence>();
         _hasTakenDamage = false;
+
+        RankTier = RankTier.Stardust;
+        RankScore = 0;
     }
     
     /// <summary>

@@ -301,7 +301,8 @@ public class GetPublicKeyRequest
 public class GetPublicKeyResponse
 {
     public bool Success { get; set; }
-    public string? PublicKey { get; set; }
+    public string? PublicKey { get; set; } // 钱包系统公钥
+    public string? AchievementPublicKey { get; set; } // 成就系统公钥
     public string? ErrorMessage { get; set; }
 }
 
@@ -398,6 +399,7 @@ public class ErrorMessage
 
 /// <summary>
 /// 成就数据（用于网络传输）
+/// 包含RSA签名以防止篡改，确保成就数据与玩家账号绑定
 /// </summary>
 public class AchievementDto
 {
@@ -413,6 +415,19 @@ public class AchievementDto
     public DateTime? CompletedTime { get; set; }
     public List<RewardDto> Rewards { get; set; } = new();
     public float ProgressPercentage => RequiredProgress > 0 ? (Progress * 100f) / RequiredProgress : 0f;
+    
+    // 加密签名字段 - 绑定玩家账号和成就数据
+    public string UserId { get; set; } = string.Empty; // 所属用户ID
+    public string Signature { get; set; } = string.Empty; // RSA签名
+    public long IssuedAt { get; set; } // Unix时间戳
+    
+    /// <summary>
+    /// 获取可签名的数据（不包含签名本身）
+    /// </summary>
+    public string GetSignableData()
+    {
+        return $"{UserId}|{Id}|{Progress}|{RequiredProgress}|{IsCompleted}|{CompletedTime?.Ticks ?? 0}|{IssuedAt}";
+    }
 }
 
 /// <summary>

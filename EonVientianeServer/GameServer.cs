@@ -444,21 +444,23 @@ public class GameServer
     }
 
     /// <summary>
-    /// 处理获取公钥请求（用于客户端初始化钱包验证器）
+    /// 处理获取公钥请求（用于客户端初始化钱包和成就验证器）
     /// </summary>
     private async Task HandleGetPublicKeyAsync(ConnectedClient client)
     {
         try
         {
-            var publicKey = _walletManager.GetPublicKey();
+            var walletPublicKey = _walletManager.GetPublicKey();
+            var achievementPublicKey = _achievementManager.GetPublicKey();
             var response = NetworkMessage.Create(MessageType.GetPublicKeyResponse, new GetPublicKeyResponse
             {
                 Success = true,
-                PublicKey = publicKey
+                PublicKey = walletPublicKey,
+                AchievementPublicKey = achievementPublicKey
             });
             
             await client.SendMessageAsync(response);
-            Console.WriteLine($"[钱包系统] 发送公钥给客户端 {client.PlayerName}");
+            Console.WriteLine($"[服务器] 发送钱包和成就公钥给客户端 {client.PlayerName}");
         }
         catch (Exception ex)
         {
@@ -1103,13 +1105,34 @@ public class GameServer
             
             foreach (var client in clients)
             {
-                var inventoryState = _inventoryStore.LoadOrCreate(client.UserId, () => GetInitialInventoryForUser(client.UserId));
+                // 优先使用钱包系统（支持metadata），回退到旧的InventoryStore
+                var wallet = _walletManager.LoadOrCreateWallet(client.UserId);
+                List<Equipment> equippedItems;
                 
-                var equippedItems = inventoryState.Items
-                    .Where(item => item.IsEquipped)
-                    .Select(item => ItemInitializer.CreateItemFromStackData(item))
-                    .OfType<Equipment>()
-                    .ToList();
+                if (wallet != null)
+                {
+                    // 使用新的钱包系统
+                    equippedItems = wallet.Items
+                        .Where(item => item.IsEquipped)
+                        .Select(item => ItemInitializer.CreateItemFromSignedItem(item))
+                        .OfType<Equipment>()
+                        .ToList();
+                    
+                    Console.WriteLine($"[Server] Loaded {equippedItems.Count} equipped items from wallet for {client.PlayerName}");
+                }
+                else
+                {
+                    // 回退到旧的InventoryStore系统
+                    var inventoryState = _inventoryStore.LoadOrCreate(client.UserId, () => GetInitialInventoryForUser(client.UserId));
+                    
+                    equippedItems = inventoryState.Items
+                        .Where(item => item.IsEquipped)
+                        .Select(item => ItemInitializer.CreateItemFromStackData(item))
+                        .OfType<Equipment>()
+                        .ToList();
+                    
+                    Console.WriteLine($"[Server] Loaded {equippedItems.Count} equipped items from inventory store for {client.PlayerName}");
+                }
                 
                 playerEquipment[client.UserId] = equippedItems;
             }
@@ -1370,6 +1393,94 @@ public class GameServer
     }
     
     /// <summary>
+    /// 处理飞升之证的胜负记录和持久化
+    /// </summary>
+    private async Task HandleAscensionProofUpdateAsync(ServerBattle battle)
+    {
+        var players = battle.GetAllPlayers();
+        var winnerCamp = battle.WinnerCamp;
+        
+        if (!winnerCamp.HasValue)
+        {
+            // 平局，所有玩家都算失败
+            foreach (var player in players)
+            {
+                await UpdatePlayerAscensionProofAsync(player.PlayerId, false);
+            }
+            return;
+        }
+        
+        // 更新胜利者和失败者的飞升之证
+        foreach (var player in players)
+        {
+            bool isWinner = player.Camp == winnerCamp.Value;
+            await UpdatePlayerAscensionProofAsync(player.PlayerId, isWinner);
+        }
+    }
+    
+    /// <summary>
+    /// 更新单个玩家的飞升之证状态
+    /// </summary>
+    private async Task UpdatePlayerAscensionProofAsync(string userId, bool won)
+    {
+        try
+        {
+            // 获取玩家钱包
+            var wallet = _walletManager.LoadOrCreateWallet(userId);
+            if (wallet == null)
+            {
+                return; // 玩家没有钱包，跳过
+            }
+            
+            bool updated = false;
+            
+            // 查找飞升之证
+            foreach (var item in wallet.Items)
+            {
+                if (item.ItemId == "ascension_proof")
+                {
+                    // 创建临时的AscensionProofAccessory实例来处理逻辑
+                    var ascensionProof = new AscensionProofAccessory();
+                    
+                    // 从metadata加载当前状态
+                    ascensionProof.LoadFromMetadata(item.Metadata);
+                    
+                    // 根据胜负更新状态
+                    if (won)
+                    {
+                        ascensionProof.OnWin();
+                        Console.WriteLine($"[Server] Player {userId} won with Ascension Proof: Counter={ascensionProof.Counter}, ConsecutiveWins={ascensionProof.ConsecutiveWins}");
+                    }
+                    else
+                    {
+                        ascensionProof.OnLoss();
+                        Console.WriteLine($"[Server] Player {userId} lost with Ascension Proof: Counter reset to {ascensionProof.Counter}, ConsecutiveWins={ascensionProof.ConsecutiveWins}");
+                    }
+                    
+                    // 保存更新后的状态到metadata
+                    item.Metadata = ascensionProof.SaveToMetadata();
+                    
+                    // 重新生成签名（因为metadata改变了）
+                    _walletManager.RefreshItemSignature(item);
+                    
+                    updated = true;
+                }
+            }
+            
+            if (updated)
+            {
+                // 保存更新后的钱包
+                _walletManager.SaveWallet(wallet);
+                Console.WriteLine($"[Server] Ascension Proof updated for player {userId}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Server] Error updating Ascension Proof for player {userId}: {ex.Message}");
+        }
+    }
+    
+    /// <summary>
     /// 广播战斗结束
     /// </summary>
     private async Task BroadcastBattleEndAsync(GameRoom room, ServerBattle battle)
@@ -1451,6 +1562,9 @@ public class GameServer
         }
 
         HandleAbsoluteLuckAchievement(battle);
+        
+        // 处理飞升之证的胜负记录
+        await HandleAscensionProofUpdateAsync(battle);
         
         var message = NetworkMessage.Create(MessageType.BattleEnd, notification);
         

@@ -1,5 +1,7 @@
 using Microsoft.Xna.Framework;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace EonVientiane;
 
@@ -28,6 +30,32 @@ public class HolyFireAccessory : Accessory
     public bool ShouldForceOpponentSkip(TimeSpan actionTime)
     {
         return actionTime.TotalSeconds > 0.5;
+    }
+
+    /// <summary>
+    /// 静态便捷方法：判断是否需要强制跳过
+    /// </summary>
+    public static bool ShouldForceSkip(TimeSpan actionTime)
+    {
+        return actionTime.TotalSeconds > 0.5;
+    }
+
+    /// <summary>
+    /// 静态便捷方法：检查对手是否装备圣火
+    /// </summary>
+    public static bool TryFindHolyFireOpponent(IEnumerable<Player> opponents, out Player owner)
+    {
+        foreach (var opponent in opponents)
+        {
+            if (opponent.GetEquippedAccessories().Any(a => a is HolyFireAccessory))
+            {
+                owner = opponent;
+                return true;
+            }
+        }
+
+        owner = null;
+        return false;
     }
     
     public override Item Clone()
