@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\EonVientiane.Core\EonVientiane.Core.csproj" />
+    <ProjectReference Include="..\EonVientiane.AchievementModule\EonVientiane.AchievementModule.csproj" />
+    <ProjectReference Include="..\EonVientiane.Achievements\EonVientiane.AchievementConnectionModule\EonVientiane.AchievementConnectionModule.csproj" />
+    <ProjectReference Include="..\EonVientiane.Achievements\EonVientiane.AchievementStatusModule\EonVientiane.AchievementStatusModule.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowMissingPrunePackageData>true</AllowMissingPrunePackageData>
+  </PropertyGroup>
+
+</Project>

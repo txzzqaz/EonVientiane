@@ -1,0 +1,13 @@
+<Solution>
+  <Project Path="EonVientiane.CLI/EonVientiane.CLI.csproj" />
+  <Project Path="EonVientiane.Core/EonVientiane.Core.csproj" />
+  <Project Path="EonVientiane.AchievementModule/EonVientiane.AchievementModule.csproj" />
+  <Project Path="EonVientiane.Achievements/EonVientiane.AchievementConnectionModule/EonVientiane.AchievementConnectionModule.csproj" />
+  <Project Path="EonVientiane.Achievements/EonVientiane.AchievementStatusModule/EonVientiane.AchievementStatusModule.csproj" />
+  <Project Path="EonVientiane.ItemModule/EonVientiane.ItemModule.csproj" />
+  <Project Path="EonVientiane.EquipmentModule/EonVientiane.EquipmentModule.csproj" />
+  <Project Path="EonVientiane.InventoryModule/EonVientiane.InventoryModule.csproj" />
+  <Project Path="EonVientiane.LevelModule/EonVientiane.LevelModule.csproj" />
+  <Project Path="EonVientiane.PlayerModule/EonVientiane.PlayerModule.csproj" />
+  <Project Path="EonVientiane.Server/EonVientiane.Server.csproj" />
+</Solution>
