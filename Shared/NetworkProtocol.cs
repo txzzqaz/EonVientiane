@@ -63,6 +63,9 @@ public enum MessageType
     
     // 战斗相关
     BattleInitialize,
+    BattleSeedExchange,        // 战斗种子交换
+    BattleSeedExchangeResponse,
+    BattleSeedCombined,        // 种子合成通知
     BattleStarted,
     BattleStateUpdate,
     BattleActionRequest,
@@ -72,6 +75,13 @@ public enum MessageType
     BattleSurrenderRequest,
     BattleLog,
     BattleEnd,
+    BattleVerifyRequest,       // 战斗验证请求
+    BattleVerifyResponse,      // 战斗验证响应
+    
+    // P2P战斗消息（客户端之间通过服务器中转）
+    P2PBattleAction,           // P2P战斗操作
+    P2PBattleDefense,          // P2P战斗防御
+    P2PBattleSync,             // P2P状态同步
     
     // 聊天
     ChatMessage,
@@ -115,7 +125,8 @@ public enum RoomStatus
     Waiting,
     Countdown,
     InGame,
-    Full
+    Full,
+    Ended
 }
 
 /// <summary>
@@ -506,6 +517,35 @@ public class BattlePlayerStateDto
 }
 
 /// <summary>
+/// 战斗种子交换请求（每个客户端提交自己的种子）
+/// </summary>
+public class BattleSeedExchangeRequest
+{
+    public string RoomId { get; set; } = string.Empty;
+    public string PlayerId { get; set; } = string.Empty;
+    public string SeedHex { get; set; } = string.Empty; // 客户端生成的随机种子（十六进制）
+}
+
+/// <summary>
+/// 战斗种子交换响应
+/// </summary>
+public class BattleSeedExchangeResponse
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 战斗种子合成通知（服务器通知所有玩家合成的种子）
+/// </summary>
+public class BattleSeedCombinedNotification
+{
+    public string RoomId { get; set; } = string.Empty;
+    public string CombinedSeedHex { get; set; } = string.Empty; // 合成后的种子
+    public Dictionary<string, string> PlayerSeeds { get; set; } = new(); // 所有玩家的种子（用于验证）
+}
+
+/// <summary>
 /// 战斗初始化通知
 /// </summary>
 public class BattleInitializeNotification
@@ -515,6 +555,7 @@ public class BattleInitializeNotification
     public int CurrentRound { get; set; }
     public string CurrentCamp { get; set; } = string.Empty;
     public DateTime StartTimeUtc { get; set; } = DateTime.UtcNow;
+    public string BattleSeedHex { get; set; } = string.Empty; // 战斗随机种子
 }
 
 /// <summary>
@@ -572,20 +613,77 @@ public class BattleSurrenderRequest
 }
 
 /// <summary>
-/// 玩家战斗统计数据
+/// 战斗操作记录（用于归档和验证）
+/// </summary>
+public class BattleActionRecord
+{
+    public long Timestamp { get; set; } // Unix时间戳（毫秒）
+    public int Round { get; set; }
+    public string ActionType { get; set; } = string.Empty; // "Attack", "Defense", "Random", "Effect"
+    public string PlayerId { get; set; } = string.Empty;
+    public string TargetPlayerId { get; set; } = string.Empty;
+    public string DiceName { get; set; } = string.Empty;
+    public int? DiceValue { get; set; }
+    public int? ManualDiceValue { get; set; }
+    public long RandomCounter { get; set; } // 随机数生成器的计数器值
+    public Dictionary<string, object> ExtraData { get; set; } = new(); // 额外数据
+}
+
+/// <summary>
+/// 战斗归档（完整的战斗记录）
+/// </summary>
+public class BattleArchive
+{
+    public string BattleId { get; set; } = string.Empty;
+    public string RoomId { get; set; } = string.Empty;
+    public DateTime StartTime { get; set; }
+    public DateTime EndTime { get; set; }
+    public string BattleSeedHex { get; set; } = string.Empty;
+    public List<BattlePlayerStateDto> InitialPlayerStates { get; set; } = new();
+    public List<BattlePlayerStateDto> FinalPlayerStates { get; set; } = new();
+    public List<BattleActionRecord> ActionRecords { get; set; } = new();
+    public string WinnerCamp { get; set; } = string.Empty;
+    public string ArchiveHash { get; set; } = string.Empty; // 归档数据的SHA256哈希
+}
+
+/// <summary>
+/// 战斗验证请求
+/// </summary>
+public class BattleVerifyRequest
+{
+    public string BattleId { get; set; } = string.Empty;
+    public string RequesterId { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 战斗验证响应
+/// </summary>
+public class BattleVerifyResponse
+{
+    public bool Success { get; set; }
+    public bool IsValid { get; set; } // 战斗是否验证通过
+    public BattleArchive Archive { get; set; } = null;
+    public string Message { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 玩家战斗统计（用于战斗奖励计算）
 /// </summary>
 public class PlayerBattleStats
 {
     public string PlayerId { get; set; } = string.Empty;
     public string PlayerName { get; set; } = string.Empty;
     public int TeamId { get; set; }
-    public int TotalDamageDealt { get; set; }  // 总造成伤害
-    public int TotalDamageTaken { get; set; }  // 总承受伤害
-    public int TotalDamageBlocked { get; set; } // 总格挡伤害
     public int AttackCount { get; set; }        // 攻击次数
     public int DefenseCount { get; set; }       // 防御次数
+    public int DamageDealt { get; set; }        // 造成伤害（向后兼容）
+    public int TotalDamageDealt { get; set; }   // 造成伤害
+    public int DamageTaken { get; set; }        // 承受伤害（向后兼容）
+    public int TotalDamageTaken { get; set; }   // 承受伤害
+    public int TotalDamageBlocked { get; set; } // 格挡伤害
+    public int HealingDone { get; set; }        // 治疗量
     public int KillCount { get; set; }          // 击杀数
-    public TimeSpan TotalActionTime { get; set; } // 总行动时间
+    public TimeSpan TotalActionTime { get; set; } // 总操作时间
     public Dictionary<string, int> DiceUsageCount { get; set; } = new(); // 骰子使用次数统计
     public bool IsMVP { get; set; }             // 是否MVP
     public bool HasWandererHeart { get; set; }  // 是否装备了漫游者之心
@@ -617,6 +715,41 @@ public class BattleEndNotification
     public int TotalRounds { get; set; }         // 总回合数
     public List<PlayerBattleStats> PlayerStats { get; set; } = new(); // 玩家战斗统计
     public List<BattleReward> PlayerRewards { get; set; } = new(); // 玩家奖励
+}
+
+/// <summary>
+/// P2P战斗操作消息（客户端之间通过服务器中转）
+/// </summary>
+public class P2PBattleActionMessage
+{
+    public string RoomId { get; set; } = string.Empty;
+    public string FromPlayerId { get; set; } = string.Empty;
+    public string ToPlayerId { get; set; } = string.Empty; // 空表示广播给所有人
+    public BattleActionRecord Action { get; set; } = new();
+}
+
+/// <summary>
+/// P2P战斗防御消息
+/// </summary>
+public class P2PBattleDefenseMessage
+{
+    public string RoomId { get; set; } = string.Empty;
+    public string FromPlayerId { get; set; } = string.Empty;
+    public string ToPlayerId { get; set; } = string.Empty;
+    public BattleActionRecord Defense { get; set; } = new();
+}
+
+/// <summary>
+/// P2P状态同步消息
+/// </summary>
+public class P2PBattleSyncMessage
+{
+    public string RoomId { get; set; } = string.Empty;
+    public string FromPlayerId { get; set; } = string.Empty;
+    public string ToPlayerId { get; set; } = string.Empty; // 空表示广播给所有人
+    public int CurrentRound { get; set; }
+    public long RandomCounter { get; set; }
+    public List<BattlePlayerStateDto> PlayerStates { get; set; } = new();
 }
 
 /// <summary>

@@ -315,6 +315,11 @@ public abstract class Dice : Equipment
     {
         return null; // 子类覆写实现
     }
+
+    /// <summary>
+    /// 攻击点数结算时触发（用于骰子动态加成）
+    /// </summary>
+    public virtual void OnAttackPowerCalculation(DiceAttackContext context) { }
     
     /// <summary>
     /// 获取骰子类型标签
@@ -326,6 +331,32 @@ public abstract class Dice : Equipment
         DiceUsageType.Both => "[AD/PD]",
         _ => "[?]"
     };
+}
+
+/// <summary>
+/// 骰子攻击结算上下文
+/// </summary>
+public class DiceAttackContext
+{
+    private readonly List<string> _logs = new();
+
+    public Player Attacker { get; }
+    public int AttackPower { get; set; }
+    public IReadOnlyList<string> Logs => _logs;
+
+    public DiceAttackContext(Player attacker, int attackPower)
+    {
+        Attacker = attacker;
+        AttackPower = attackPower;
+    }
+
+    public void AddLog(string message)
+    {
+        if (!string.IsNullOrWhiteSpace(message))
+        {
+            _logs.Add(message);
+        }
+    }
 }
 
 /// <summary>
@@ -409,11 +440,58 @@ public abstract class Accessory : Equipment
     /// 对局开始时的效果
     /// </summary>
     public virtual void OnBattleStart(BattleContext context) { }
+
+    /// <summary>
+    /// 攻击点数结算时触发（用于饰品动态加成）
+    /// </summary>
+    public virtual void OnAttackPowerCalculation(AccessoryAttackContext context) { }
     
     /// <summary>
     /// 获取提供的HP（某些饰品可能修改这个行为）
     /// </summary>
     public virtual int GetProvidedHP() => Health;
+}
+
+/// <summary>
+/// 饰品攻击触发阶段
+/// </summary>
+public enum AccessoryAttackTriggerPhase
+{
+    PreBloodTraceBonus,
+    PostBloodTraceBonus
+}
+
+/// <summary>
+/// 饰品攻击结算上下文
+/// </summary>
+public class AccessoryAttackContext
+{
+    private readonly List<string> _logs = new();
+
+    public Player Attacker { get; }
+    public int RollValue { get; }
+    public TimeSpan SlowestActionTime { get; }
+    public AccessoryAttackTriggerPhase Phase { get; }
+    public int AttackPower { get; set; }
+    public bool WandererHeartTriggered { get; set; }
+    public IReadOnlyList<string> Logs => _logs;
+
+    public AccessoryAttackContext(Player attacker, int rollValue, int attackPower, TimeSpan slowestActionTime, AccessoryAttackTriggerPhase phase)
+    {
+        Attacker = attacker;
+        RollValue = rollValue;
+        AttackPower = attackPower;
+        SlowestActionTime = slowestActionTime;
+        Phase = phase;
+    }
+
+    public void AddLog(string message)
+    {
+        if (!string.IsNullOrWhiteSpace(message))
+        {
+            _logs.Add(message);
+        }
+    }
 }
 
 /// <summary>

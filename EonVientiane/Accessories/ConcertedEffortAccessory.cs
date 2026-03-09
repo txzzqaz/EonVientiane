@@ -31,6 +31,20 @@ public class ConcertedEffortAccessory : Accessory
         _lastRoll = null;
     }
 
+    public override void OnAttackPowerCalculation(AccessoryAttackContext context)
+    {
+        if (context == null || context.Phase != AccessoryAttackTriggerPhase.PreBloodTraceBonus)
+            return;
+
+        int boostedAttackPower = ApplyRollBonus(context.RollValue, context.AttackPower, out var triggered);
+        context.AttackPower = boostedAttackPower;
+
+        if (triggered)
+        {
+            context.AddLog($"戮力同心触发！{context.Attacker?.PlayerName}的行动效果提升至{boostedAttackPower}");
+        }
+    }
+
     /// <summary>
     /// 处理一次掷骰并根据连号返回放大后的效果值。
     /// </summary>

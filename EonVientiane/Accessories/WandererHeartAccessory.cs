@@ -40,6 +40,22 @@ public class WandererHeartAccessory : Accessory
         return 5.0 - (timeInSeconds * 4.0);
     }
 
+    public override void OnAttackPowerCalculation(AccessoryAttackContext context)
+    {
+        if (context == null || context.Phase != AccessoryAttackTriggerPhase.PostBloodTraceBonus)
+            return;
+
+        double multiplier = GetAttackMultiplier(context.SlowestActionTime);
+        int finalAttackPower = (int)Math.Round(context.AttackPower * multiplier);
+        context.AttackPower = finalAttackPower;
+
+        if (multiplier > 1.0)
+        {
+            context.WandererHeartTriggered = true;
+            context.AddLog($"漫游者之心触发！根据回合内最慢一步({context.SlowestActionTime.TotalSeconds:F2}秒)，攻击力调整为{finalAttackPower}");
+        }
+    }
+
     /// <summary>
     /// 静态便捷方法：尝试为玩家应用漫游者之心倍率
     /// </summary>

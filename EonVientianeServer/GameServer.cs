@@ -292,6 +292,8 @@ public class GameServer
                 break;
             
             // 战斗相关
+            // 旧的服务器权威战斗模式（已废弃，使用P2P模式）
+            /*
             case MessageType.BattleActionRequest:
                 if (!client.IsAuthenticated)
                 {
@@ -317,6 +319,35 @@ public class GameServer
                     break;
                 }
                 await HandleBattleSurrenderAsync(client, message);
+                break;
+            */
+
+            // P2P战斗消息中转
+            case MessageType.P2PBattleAction:
+                if (!client.IsAuthenticated)
+                {
+                    await SendErrorAsync(client, "请先登录");
+                    break;
+                }
+                await HandleP2PBattleMessageAsync(client, message);
+                break;
+
+            case MessageType.P2PBattleDefense:
+                if (!client.IsAuthenticated)
+                {
+                    await SendErrorAsync(client, "请先登录");
+                    break;
+                }
+                await HandleP2PBattleMessageAsync(client, message);
+                break;
+
+            case MessageType.P2PBattleSync:
+                if (!client.IsAuthenticated)
+                {
+                    await SendErrorAsync(client, "请先登录");
+                    break;
+                }
+                await HandleP2PBattleMessageAsync(client, message);
                 break;
             
             // 成就相关
@@ -1091,73 +1122,36 @@ public class GameServer
     }
     
     /// <summary>
-    /// 初始化服务器端战斗
+    /// 初始化P2P战斗模式（服务器仅作为消息中转）
     /// </summary>
     private async Task InitializeServerBattleAsync(GameRoom room)
     {
         try
         {
-            var clients = room.Players.ToList();
-            var serverBattle = new ServerBattle(room.RoomId, clients);
+            // P2P模式：服务器不管理战斗逻辑，仅标记战斗状态
+            room.StartGame();
             
-            // 获取每个玩家的装备信息
-            var playerEquipment = new Dictionary<string, List<Equipment>>();
+            Console.WriteLine($"[Server] P2P battle mode started for room {room.RoomName}");
             
-            foreach (var client in clients)
-            {
-                // 优先使用钱包系统（支持metadata），回退到旧的InventoryStore
-                var wallet = _walletManager.LoadOrCreateWallet(client.UserId);
-                List<Equipment> equippedItems;
-                
-                if (wallet != null)
-                {
-                    // 使用新的钱包系统
-                    equippedItems = wallet.Items
-                        .Where(item => item.IsEquipped)
-                        .Select(item => ItemInitializer.CreateItemFromSignedItem(item))
-                        .OfType<Equipment>()
-                        .ToList();
-                    
-                    Console.WriteLine($"[Server] Loaded {equippedItems.Count} equipped items from wallet for {client.PlayerName}");
-                }
-                else
-                {
-                    // 回退到旧的InventoryStore系统
-                    var inventoryState = _inventoryStore.LoadOrCreate(client.UserId, () => GetInitialInventoryForUser(client.UserId));
-                    
-                    equippedItems = inventoryState.Items
-                        .Where(item => item.IsEquipped)
-                        .Select(item => ItemInitializer.CreateItemFromStackData(item))
-                        .OfType<Equipment>()
-                        .ToList();
-                    
-                    Console.WriteLine($"[Server] Loaded {equippedItems.Count} equipped items from inventory store for {client.PlayerName}");
-                }
-                
-                playerEquipment[client.UserId] = equippedItems;
-            }
-            
-            // 初始化战斗
-            serverBattle.InitializeBattle(playerEquipment);
-            room.CurrentBattle = serverBattle;
-            
-            Console.WriteLine($"[Server] Battle initialized for room {room.RoomName}");
-            
-            // 广播战斗初始化信息
-            await BroadcastBattleStateAsync(room, serverBattle);
-            
-            // 启动战斗循环
-            _ = RunBattleLoopAsync(room, serverBattle);
+            // 通知所有玩家准备他们的客户端战斗引擎
+            // 玩家会在客户端初始化P2PBattleEngine并交换种子
+            await Task.CompletedTask; // 无需额外操作，客户端会自行处理
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Error] Failed to initialize battle: {ex.Message}");
-            await SendErrorToRoomAsync(room, "战斗初始化失败");
+            Console.WriteLine($"[Error] Failed to start P2P battle: {ex.Message}");
+            await SendErrorToRoomAsync(room, "战斗启动失败");
         }
     }
     
+    /*
+    ============================================================================
+    以下方法已废弃 - 旧的服务器权威战斗系统
+    现在使用P2P模式，服务器仅作为消息中转
+    ============================================================================
+    
     /// <summary>
-    /// 运行战斗循环
+    /// 运行战斗循环（已废弃）
     /// </summary>
     private async Task RunBattleLoopAsync(GameRoom room, ServerBattle battle)
     {
@@ -1574,8 +1568,9 @@ public class GameServer
         }
     }
     
+    /*
     /// <summary>
-    /// 处理战斗行动请求
+    /// 处理战斗行动请求（已废弃 - 使用P2P模式）
     /// </summary>
     private async Task HandleBattleActionAsync(ConnectedClient client, NetworkMessage message)
     {
@@ -1608,7 +1603,7 @@ public class GameServer
     }
     
     /// <summary>
-    /// 处理战斗防守请求
+    /// 处理战斗防守请求（已废弃 - 使用P2P模式）
     /// </summary>
     private async Task HandleBattleDefenseAsync(ConnectedClient client, NetworkMessage message)
     {
@@ -1641,7 +1636,7 @@ public class GameServer
     }
 
     /// <summary>
-    /// 处理战斗认输请求
+    /// 处理战斗认输请求（已废弃 - 使用P2P模式）
     /// </summary>
     private async Task HandleBattleSurrenderAsync(ConnectedClient client, NetworkMessage message)
     {
@@ -1676,6 +1671,67 @@ public class GameServer
         // 立即广播战斗状态和结束通知
         await BroadcastBattleStateAsync(room, room.CurrentBattle);
         await BroadcastBattleEndAsync(room, room.CurrentBattle);
+    }
+    
+    ============================================================================
+    */
+    
+    /// <summary>
+    /// 处理P2P战斗消息中转
+    /// </summary>
+    private async Task HandleP2PBattleMessageAsync(ConnectedClient client, NetworkMessage message)
+    {
+        if (string.IsNullOrEmpty(client.CurrentRoomId))
+        {
+            await SendErrorAsync(client, "Not in a room");
+            return;
+        }
+
+        GameRoom? room = null;
+        lock (_lock)
+        {
+            _rooms.TryGetValue(client.CurrentRoomId, out room);
+        }
+
+        if (room == null)
+        {
+            await SendErrorAsync(client, "Room not found");
+            return;
+        }
+
+        if (!room.IsBattleInProgress)
+        {
+            await SendErrorAsync(client, "No active battle in room");
+            return;
+        }
+
+        // 提取目标玩家ID（如果有）
+        string? toPlayerId = null;
+        switch (message.Type)
+        {
+            case MessageType.P2PBattleAction:
+                var actionMsg = message.GetData<P2PBattleActionMessage>();
+                toPlayerId = actionMsg?.ToPlayerId;
+                break;
+            case MessageType.P2PBattleDefense:
+                var defenseMsg = message.GetData<P2PBattleDefenseMessage>();
+                toPlayerId = defenseMsg?.ToPlayerId;
+                break;
+            case MessageType.P2PBattleSync:
+                var syncMsg = message.GetData<P2PBattleSyncMessage>();
+                toPlayerId = syncMsg?.ToPlayerId;
+                break;
+        }
+
+        // 获取接收者列表（直接返回ConnectedClient对象）
+        var recipients = room.GetMessageRecipients(client.UserId, toPlayerId);
+        
+        // 转发消息
+        Console.WriteLine($"[Server] Relaying {message.Type} from {client.PlayerName} to {recipients.Count} recipient(s)");
+        foreach (var recipient in recipients)
+        {
+            await recipient.SendMessageAsync(message);
+        }
     }
     
     /// <summary>

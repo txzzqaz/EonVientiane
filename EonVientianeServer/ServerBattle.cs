@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using EonVientiane;
 using EonVientiane.Shared;
 using EonVientianeServer.Achievements;
@@ -16,6 +19,11 @@ public class ServerBattle
     /// 房间ID
     /// </summary>
     public string RoomId { get; }
+    
+    /// <summary>
+    /// 战斗唯一ID
+    /// </summary>
+    public string BattleId { get; private set; }
     
     /// <summary>
     /// 所有参与者
@@ -72,19 +80,22 @@ public class ServerBattle
     /// </summary>
     public BattleAchievementTracker AchievementTracker => _achievementTracker;
     
-    // 内部战斗状态
+    // 阵营回合顺序
     private List<PlayerCamp> _campTurnOrder;
     private int _currentCampIndex;
     private List<string> _currentOpponentIds;
-    private List<Dice> _currentActiveDiceChoices;
-    private List<Dice> _currentPassiveDiceChoices;
-    private PendingAttack _pendingAttack;
     private Dictionary<string, int> _playerInitialHP;
     private Dictionary<string, bool> _playerTookDamage;
-    private int _lastSentLogIndex = 0;
-    private readonly BattleAchievementTracker _achievementTracker;
+    private BattleAchievementTracker _achievementTracker;
     
-    // 时间追踪
+    // 确定性随机系统
+    private Dictionary<string, byte[]> _playerSeeds = new(); // 玩家种子
+    private DeterministicRandom _battleRandom; // 战斗随机数生成器
+    private bool _seedsReady = false; // 是否所有玩家都提交了种子
+    
+    // 战斗归档系统
+    private List<BattleActionRecord> _actionRecords = new();
+    private List<BattlePlayerStateDto> _initialPlayerStates = new();
     private DateTime _battleStartTime;
     private DateTime _currentActionStartTime;
     private Dictionary<string, TimeSpan> _playerTotalActionTime; // 每个玩家的总行动时间
@@ -92,8 +103,11 @@ public class ServerBattle
     private Dictionary<string, TimeSpan> _playerRoundSlowestActionTime; // 每个玩家在本回合的最慢一步时间（用于漫游者之心）
     private bool _currentPlayerHasHolyFireOpponent; // 当前行动的玩家是否面对装备了圣火的对手
     
-    // 血痕骰子：记录下一次AD攻击的BLOP倍率
-    private Dictionary<string, int> _playerBloodTraceBonus; // 每个玩家下一次AD的BLOP倍率
+    // 骰子选择和攻击状态
+    private List<Dice>? _currentActiveDiceChoices;
+    private List<Dice>? _currentPassiveDiceChoices;
+    private PendingAttack? _pendingAttack;
+    private int _lastSentLogIndex = 0;
     
     // 战斗统计追踪
     private Dictionary<string, int> _playerDamageDealt;    // 每个玩家造成的总伤害
@@ -115,6 +129,7 @@ public class ServerBattle
     public ServerBattle(string roomId, List<ConnectedClient> clients)
     {
         RoomId = roomId;
+        BattleId = Guid.NewGuid().ToString();
         CurrentState = BattleState.Idle;
         CurrentRound = 0;
         BattleLog = new List<string>();
@@ -131,7 +146,31 @@ public class ServerBattle
         _playerTotalActionTime = new Dictionary<string, TimeSpan>();
         _opponentTotalActionTime = new Dictionary<string, TimeSpan>();
         _playerRoundSlowestActionTime = new Dictionary<string, TimeSpan>();
-        _playerBloodTraceBonus = new Dictionary<string, int>();
+        _achievementTracker = new BattleAchievementTracker();
+        
+        // 初始化战斗统计字典
+        _playerDamageDealt = new Dictionary<string, int>();
+        _playerDamageTaken = new Dictionary<string, int>();
+        _playerDamageBlocked = new Dictionary<string, int>();
+        _playerAttackCount = new Dictionary<string, int>();
+        _playerDefenseCount = new Dictionary<string, int>();
+        _playerKillCount = new Dictionary<string, int>();
+        _playerDiceUsage = new Dictionary<string, Dictionary<string, int>>();
+        
+        // 初始化战斗归档
+        _actionRecords = new List<BattleActionRecord>();
+        _playerSeeds = new Dictionary<string, byte[]>();
+        _seedsReady = false;
+        _playerInitialHP = new Dictionary<string, int>();
+        _playerTookDamage = new Dictionary<string, bool>();
+        _currentActiveDiceChoices = null;
+        _currentPassiveDiceChoices = null;
+        _pendingAttack = null;
+        _lastSentLogIndex = 0;
+        _battleStartTime = DateTime.UtcNow;
+        _playerTotalActionTime = new Dictionary<string, TimeSpan>();
+        _opponentTotalActionTime = new Dictionary<string, TimeSpan>();
+        _playerRoundSlowestActionTime = new Dictionary<string, TimeSpan>();
         _achievementTracker = new BattleAchievementTracker();
         
         // 初始化战斗统计字典
@@ -153,7 +192,6 @@ public class ServerBattle
             _playerDamageDealt[client.UserId] = 0;
             _playerDamageTaken[client.UserId] = 0;
             _playerDamageBlocked[client.UserId] = 0;
-            _playerBloodTraceBonus[client.UserId] = 0;
             _playerAttackCount[client.UserId] = 0;
             _playerDefenseCount[client.UserId] = 0;
             _playerKillCount[client.UserId] = 0;
@@ -164,10 +202,276 @@ public class ServerBattle
     }
     
     /// <summary>
+    /// 提交玩家的随机种子
+    /// </summary>
+    public (bool success, string message) SubmitPlayerSeed(string playerId, string seedHex)
+    {
+        if (!_players.ContainsKey(playerId))
+        {
+            return (false, "玩家不存在");
+        }
+
+        if (_playerSeeds.ContainsKey(playerId))
+        {
+            return (false, "已经提交过种子");
+        }
+
+        try
+        {
+            var seed = DeterministicRandom.ParseSeedHex(seedHex);
+            _playerSeeds[playerId] = seed;
+            
+            Console.WriteLine($"[ServerBattle] 玩家 {playerId} 提交种子: {seedHex.Substring(0, 16)}...");
+            
+            // 检查是否所有玩家都提交了种子
+            if (_playerSeeds.Count == _players.Count)
+            {
+                CombineSeeds();
+                _seedsReady = true;
+                return (true, "所有玩家种子已收集,战斗即将开始");
+            }
+            
+            return (true, $"种子已提交,等待其他玩家 ({_playerSeeds.Count}/{_players.Count})");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"种子解析失败: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 合成所有玩家的种子
+    /// </summary>
+    private void CombineSeeds()
+    {
+        if (_playerSeeds.Count < 2)
+        {
+            Console.WriteLine("[ServerBattle] 警告: 玩家数量不足,使用默认随机种子");
+            _battleRandom = new DeterministicRandom(DeterministicRandom.GenerateRandomSeed());
+            return;
+        }
+
+        // 按玩家ID排序以确保确定性
+        var sortedSeeds = _playerSeeds.OrderBy(kvp => kvp.Key).Select(kvp => kvp.Value).ToList();
+        
+        // 合成所有种子
+        byte[] combinedSeed = sortedSeeds[0];
+        for (int i = 1; i < sortedSeeds.Count; i++)
+        {
+            combinedSeed = DeterministicRandom.CombineSeeds(combinedSeed, sortedSeeds[i]);
+        }
+
+        _battleRandom = new DeterministicRandom(combinedSeed);
+        
+        AddLog($"战斗随机种子已合成: {_battleRandom.SeedHex.Substring(0, 16)}...");
+        Console.WriteLine($"[ServerBattle] 合成种子: {_battleRandom.SeedHex}");
+    }
+
+    /// <summary>
+    /// 获取玩家种子映射（用于验证）
+    /// </summary>
+    public Dictionary<string, string> GetPlayerSeedsHex()
+    {
+        return _playerSeeds.ToDictionary(
+            kvp => kvp.Key,
+            kvp => BitConverter.ToString(kvp.Value).Replace("-", "")
+        );
+    }
+
+    /// <summary>
+    /// 获取合成的战斗种子
+    /// </summary>
+    public string GetBattleSeedHex()
+    {
+        return _battleRandom?.SeedHex ?? string.Empty;
+    }
+
+    /// <summary>
+    /// 检查是否可以开始战斗
+    /// </summary>
+    public bool CanStartBattle()
+    {
+        return _seedsReady && _battleRandom != null;
+    }
+
+    /// <summary>
+    /// 记录战斗操作
+    /// </summary>
+    private void RecordAction(string actionType, string playerId, string targetPlayerId = "", 
+        string diceName = "", int? diceValue = null, int? manualValue = null, Dictionary<string, object> extraData = null)
+    {
+        var record = new BattleActionRecord
+        {
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Round = CurrentRound,
+            ActionType = actionType,
+            PlayerId = playerId,
+            TargetPlayerId = targetPlayerId,
+            DiceName = diceName,
+            DiceValue = diceValue,
+            ManualDiceValue = manualValue,
+            RandomCounter = _battleRandom?.Counter ?? 0,
+            ExtraData = extraData ?? new Dictionary<string, object>()
+        };
+
+        _actionRecords.Add(record);
+    }
+
+    /// <summary>
+    /// 保存初始玩家状态
+    /// </summary>
+    private void SaveInitialPlayerStates()
+    {
+        _initialPlayerStates.Clear();
+        foreach (var player in _players.Values)
+        {
+            _initialPlayerStates.Add(CreatePlayerStateDto(player));
+        }
+    }
+
+    /// <summary>
+    /// 创建玩家状态DTO
+    /// </summary>
+    private BattlePlayerStateDto CreatePlayerStateDto(Player player)
+    {
+        return new BattlePlayerStateDto
+        {
+            PlayerId = player.PlayerId,
+            PlayerName = player.PlayerName,
+            TeamId = player.Camp == PlayerCamp.Team1 ? 1 : 2,
+            CurrentHP = player.CurrentHP,
+            MaxHP = player.MaxHP,
+            ShieldLayers = player.ShieldLayers,
+            IsDead = player.IsDead,
+            EquippedDiceNames = player.GetEquippedDice().Select(d => d.Name).ToList(),
+            DiceCounters = GetDiceCounters(player)
+        };
+    }
+    
+    /// <summary>
+    /// 获取玩家骰子计数器
+    /// </summary>
+    private Dictionary<string, int> GetDiceCounters(Player player)
+    {
+        var counters = new Dictionary<string, int>();
+        foreach (var dice in player.GetEquippedDice())
+        {
+            if (dice is ICounterDice counterDice)
+            {
+                counters[dice.Name] = counterDice.Counter;
+            }
+        }
+        return counters;
+    }
+
+    /// <summary>
+    /// 生成战斗归档
+    /// </summary>
+    public BattleArchive CreateBattleArchive()
+    {
+        var finalPlayerStates = _players.Values.Select(CreatePlayerStateDto).ToList();
+        
+        var archive = new BattleArchive
+        {
+            BattleId = BattleId,
+            RoomId = RoomId,
+            StartTime = _battleStartTime,
+            EndTime = DateTime.UtcNow,
+            BattleSeedHex = _battleRandom?.SeedHex ?? string.Empty,
+            InitialPlayerStates = _initialPlayerStates,
+            FinalPlayerStates = finalPlayerStates,
+            ActionRecords = _actionRecords,
+            WinnerCamp = WinnerCamp?.ToString() ?? string.Empty
+        };
+
+        // 计算归档哈希
+        archive.ArchiveHash = ComputeArchiveHash(archive);
+        
+        return archive;
+    }
+
+    /// <summary>
+    /// 计算战斗归档的哈希值
+    /// </summary>
+    private string ComputeArchiveHash(BattleArchive archive)
+    {
+        var tempArchive = new BattleArchive
+        {
+            BattleId = archive.BattleId,
+            RoomId = archive.RoomId,
+            StartTime = archive.StartTime,
+            EndTime = archive.EndTime,
+            BattleSeedHex = archive.BattleSeedHex,
+            InitialPlayerStates = archive.InitialPlayerStates,
+            FinalPlayerStates = archive.FinalPlayerStates,
+            ActionRecords = archive.ActionRecords,
+            WinnerCamp = archive.WinnerCamp,
+            ArchiveHash = string.Empty // 不包含哈希本身
+        };
+
+        var json = JsonSerializer.Serialize(tempArchive);
+        using (var sha256 = SHA256.Create())
+        {
+            var bytes = Encoding.UTF8.GetBytes(json);
+            var hash = sha256.ComputeHash(bytes);
+            return Convert.ToBase64String(hash);
+        }
+    }
+
+    /// <summary>
+    /// 验证战斗归档
+    /// </summary>
+    public static (bool isValid, string message) VerifyBattleArchive(BattleArchive archive)
+    {
+        if (archive == null)
+            return (false, "归档数据为空");
+
+        // 验证哈希
+        var storedHash = archive.ArchiveHash;
+        var tempArchive = new BattleArchive
+        {
+            BattleId = archive.BattleId,
+            RoomId = archive.RoomId,
+            StartTime = archive.StartTime,
+            EndTime = archive.EndTime,
+            BattleSeedHex = archive.BattleSeedHex,
+            InitialPlayerStates = archive.InitialPlayerStates,
+            FinalPlayerStates = archive.FinalPlayerStates,
+            ActionRecords = archive.ActionRecords,
+            WinnerCamp = archive.WinnerCamp,
+            ArchiveHash = string.Empty
+        };
+
+        var json = JsonSerializer.Serialize(tempArchive);
+        string computedHash;
+        using (var sha256 = SHA256.Create())
+        {
+            var bytes = Encoding.UTF8.GetBytes(json);
+            var hash = sha256.ComputeHash(bytes);
+            computedHash = Convert.ToBase64String(hash);
+        }
+
+        if (storedHash != computedHash)
+        {
+            return (false, "归档哈希验证失败,数据可能被篡改");
+        }
+
+        // 可以进一步验证:使用种子重放所有操作,检查结果是否一致
+        // TODO: 实现完整的战斗重放验证
+
+        return (true, "归档验证通过");
+    }
+    
+    /// <summary>
     /// 初始化战斗
     /// </summary>
     public void InitializeBattle(Dictionary<string, List<Equipment>> playerEquipment)
     {
+        if (!_seedsReady || _battleRandom == null)
+        {
+            throw new InvalidOperationException("战斗种子尚未准备好,无法开始战斗");
+        }
+
         CurrentState = BattleState.Initialization;
         CurrentRound = 1;
         BattleLog.Clear();
@@ -175,6 +479,8 @@ public class ServerBattle
         WinnerCamp = null;
         
         AddLog("=== 联机战斗开始 ===");
+        AddLog($"战斗ID: {BattleId}");
+        AddLog($"使用确定性随机种子: {_battleRandom.SeedHex.Substring(0, 32)}...");
         
         // 为玩家装备
         foreach (var kvp in playerEquipment)
@@ -195,12 +501,14 @@ public class ServerBattle
         // 应用饰品效果
         ApplyAccessoryEffects();
         
+        // 保存初始玩家状态（用于归档）
+        SaveInitialPlayerStates();
+        
         // 初始化无伤跟踪
         _playerInitialHP.Clear();
         _playerTookDamage.Clear();
         _playerTotalActionTime.Clear();
         _opponentTotalActionTime.Clear();
-        _playerBloodTraceBonus.Clear();
         _achievementTracker.ResetForBattle(_players.Values);
         foreach (var player in _players.Values)
         {
@@ -208,13 +516,22 @@ public class ServerBattle
             _playerTookDamage[player.PlayerId] = false;
             _playerTotalActionTime[player.PlayerId] = TimeSpan.Zero;
             _opponentTotalActionTime[player.PlayerId] = TimeSpan.Zero;
-            _playerBloodTraceBonus[player.PlayerId] = 0;
+
+            foreach (var bloodTraceDice in player.GetEquippedDice().OfType<BloodTraceDice>())
+            {
+                bloodTraceDice.ClearPendingAttackBonus();
+            }
         }
         
         // 记录战斗开始时间
         _battleStartTime = DateTime.UtcNow;
+        RecordAction("BattleStart", string.Empty, extraData: new Dictionary<string, object>
+        {
+            { "BattleId", BattleId },
+            { "StartTime", _battleStartTime.ToString("o") }
+        });
         
-        // 随机决定回合顺序
+        // 随机决定回合顺序（使用确定性随机）
         RandomizeTurnOrder();
         
         CurrentState = BattleState.RoundStart;
@@ -248,19 +565,26 @@ public class ServerBattle
     }
     
     /// <summary>
-    /// 随机决定回合顺序
+    /// 随机决定回合顺序（使用确定性随机）
     /// </summary>
     private void RandomizeTurnOrder()
     {
         _campTurnOrder = new List<PlayerCamp> { PlayerCamp.Team1, PlayerCamp.Team2 };
-        Random random = new Random();
-        if (random.Next(2) == 0)
+        
+        if (_battleRandom.Next(2) == 0)
         {
             (_campTurnOrder[0], _campTurnOrder[1]) = (_campTurnOrder[1], _campTurnOrder[0]);
         }
+        
         AddLog("回合顺序已随机（阵营级）");
         AddLog($"  先手阵营: {_campTurnOrder[0]}");
         AddLog($"  后手阵营: {_campTurnOrder[1]}");
+        
+        RecordAction("TurnOrderDecided", string.Empty, extraData: new Dictionary<string, object>
+        {
+            { "FirstCamp", _campTurnOrder[0].ToString() },
+            { "SecondCamp", _campTurnOrder[1].ToString() }
+        });
     }
     
     /// <summary>
@@ -351,7 +675,8 @@ public class ServerBattle
                 continue;
             }
             
-            var player = actingPlayers[new Random().Next(actingPlayers.Count)];
+            // 使用确定性随机选择玩家
+            var player = actingPlayers[_battleRandom.Next(actingPlayers.Count)];
             var opponents = GetOpponents(player.PlayerId);
             
             if (player.IsDead)
@@ -377,6 +702,9 @@ public class ServerBattle
             
             // 为该玩家准备可用的AD和对手列表
             PreparePlayerAttackSelection(player, opponents);
+            
+            // 记录当前行动玩家
+            RecordAction("PlayerTurnStart", player.PlayerId);
             
             // 成功设置了一个玩家，返回
             return;
@@ -453,6 +781,13 @@ public class ServerBattle
                 _playerRoundSlowestActionTime[playerId] = actionTime;
             }
         }
+        
+        // 记录操作到归档
+        RecordAction("Attack", playerId, targetPlayerId ?? "", selectedDiceName ?? "", null, manualDiceValue, 
+            new Dictionary<string, object>
+            {
+                { "ActionTime", actionTime.TotalMilliseconds }
+            });
         
         // 更新对手视角的时间统计
         foreach (var opponentId in _currentOpponentIds)
@@ -547,31 +882,35 @@ public class ServerBattle
             return;
         }
 
-        // 记录点数并应用戮力同心加成
+        // 记录点数并触发饰品攻击前置逻辑（如戮力同心）
         int rollValue = Math.Max(0, actionResult.AttackPower);
         _achievementTracker.TrackRoll(attacker.PlayerId, rollValue);
-        bool concertedTriggered;
-        int boostedAttackPower = ConcertedEffortAccessory.TryApplyRollBonus(attacker, rollValue, actionResult.AttackPower, out concertedTriggered);
-        if (concertedTriggered)
-        {
-            AddLog($"戮力同心触发！{attacker.PlayerName}的行动效果提升至{boostedAttackPower}");
-        }
+        var preAccessoryContext = new AccessoryAttackContext(
+            attacker,
+            rollValue,
+            actionResult.AttackPower,
+            _playerRoundSlowestActionTime[playerId],
+            AccessoryAttackTriggerPhase.PreBloodTraceBonus);
+        TriggerAccessoryAttackEffects(attacker, preAccessoryContext);
+        int boostedAttackPower = preAccessoryContext.AttackPower;
 
-        // 应用血痕下一次攻击增益（BLOP倍率）
-        int bloodTraceBonus = _playerBloodTraceBonus.GetValueOrDefault(playerId, 0);
-        if (BloodTraceDice.TryApplyNextAttackBonus(boostedAttackPower, bloodTraceBonus, out var enhancedAttackPower, out var bonusMessage))
-        {
-            AddLog($"{attacker.PlayerName}{bonusMessage}");
-            boostedAttackPower = enhancedAttackPower;
-            _playerBloodTraceBonus[playerId] = 0;
-        }
+        // 触发骰子攻击加成逻辑（如血痕）
+        var diceAttackContext = new DiceAttackContext(attacker, boostedAttackPower);
+        TriggerDiceAttackEffects(attacker, diceAttackContext);
+        boostedAttackPower = diceAttackContext.AttackPower;
         
-        // 应用漫游者之心倍率（基于本回合最慢的一步时间）
-        int finalAttackPower = WandererHeartAccessory.TryApplyAttackMultiplier(attacker, _playerRoundSlowestActionTime[playerId], boostedAttackPower, out bool wandererTriggered);
-        if (wandererTriggered)
+        // 触发饰品攻击后置逻辑（如漫游者之心）
+        var postAccessoryContext = new AccessoryAttackContext(
+            attacker,
+            rollValue,
+            boostedAttackPower,
+            _playerRoundSlowestActionTime[playerId],
+            AccessoryAttackTriggerPhase.PostBloodTraceBonus);
+        TriggerAccessoryAttackEffects(attacker, postAccessoryContext);
+        int finalAttackPower = postAccessoryContext.AttackPower;
+        if (postAccessoryContext.WandererHeartTriggered)
         {
             _achievementTracker.MarkWandererHeartTriggered(playerId);
-            AddLog($"漫游者之心触发！根据回合内最慢一步({_playerRoundSlowestActionTime[playerId].TotalSeconds:F2}秒)，攻击力调整为{finalAttackPower}");
         }
         
         var resolvedTarget = actionResult.Target ?? target;
@@ -635,12 +974,6 @@ public class ServerBattle
             
             // 追踪飞羽闪避连击
             _achievementTracker.TrackFeatheredDodgeStreak(playerId, selectedDice, defenseResult, AddLog);
-
-            if (selectedDice is BloodTraceDice bloodTrace && bloodTrace.LastBloodTraceRoll > 0)
-            {
-                _playerBloodTraceBonus[playerId] = bloodTrace.LastBloodTraceRoll;
-                AddLog($"{defender.PlayerName}的血痕生效：下次AD攻击增加(ATKP×{bloodTrace.LastBloodTraceRoll})");
-            }
         }
         
         var attacker = _players[_pendingAttack.AttackerId];
@@ -713,12 +1046,6 @@ public class ServerBattle
         var result = dice.ExecutePassiveAction(defender, attackDamage);
         var finalResult = result ?? new DefenseResult(0, attackDamage, $"{defender.PlayerName}防御失败，受到{attackDamage}点伤害");
         _achievementTracker.TrackRoll(defender.PlayerId, finalResult.DefensePower);
-
-        if (dice is BloodTraceDice bloodTrace && bloodTrace.LastBloodTraceRoll > 0)
-        {
-            _playerBloodTraceBonus[defender.PlayerId] = bloodTrace.LastBloodTraceRoll;
-            AddLog($"{defender.PlayerName}的血痕生效：下次AD攻击增加(ATKP×{bloodTrace.LastBloodTraceRoll})");
-        }
         return finalResult;
     }
     
@@ -1127,6 +1454,44 @@ public class ServerBattle
     {
         BattleLog.Add(message);
         System.Diagnostics.Debug.WriteLine($"[ServerBattle] {message}");
+    }
+
+    /// <summary>
+    /// 触发攻击点数结算相关的饰品逻辑
+    /// </summary>
+    private void TriggerAccessoryAttackEffects(Player attacker, AccessoryAttackContext context)
+    {
+        if (attacker == null || context == null)
+            return;
+
+        foreach (var accessory in attacker.GetEquippedAccessories())
+        {
+            accessory.OnAttackPowerCalculation(context);
+        }
+
+        foreach (var log in context.Logs)
+        {
+            AddLog(log);
+        }
+    }
+
+    /// <summary>
+    /// 触发攻击点数结算相关的骰子逻辑
+    /// </summary>
+    private void TriggerDiceAttackEffects(Player attacker, DiceAttackContext context)
+    {
+        if (attacker == null || context == null)
+            return;
+
+        foreach (var dice in attacker.GetEquippedDice())
+        {
+            dice.OnAttackPowerCalculation(context);
+        }
+
+        foreach (var log in context.Logs)
+        {
+            AddLog(log);
+        }
     }
     
     /// <summary>

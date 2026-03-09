@@ -6,7 +6,7 @@ using EonVientiane.Shared;
 namespace EonVientianeServer;
 
 /// <summary>
-/// 游戏房间
+/// 游戏房间 - 仅负责玩家管理和P2P消息中转，不执行战斗逻辑
 /// </summary>
 public class GameRoom
 {
@@ -21,9 +21,14 @@ public class GameRoom
     private static readonly Random _random = new();
     
     /// <summary>
-    /// 关联的服务器端战斗（多人战斗）
+    /// 战斗是否正在进行（P2P模式，服务器不管理战斗逻辑）
     /// </summary>
-    public ServerBattle? CurrentBattle { get; set; }
+    public bool IsBattleInProgress { get; set; }
+    
+    /// <summary>
+    /// 战斗归档（战斗结束后用于验证）
+    /// </summary>
+    public BattleArchive BattleArchive { get; set; }
     
     public GameRoom(string roomId, string roomName, int maxPlayers, ConnectedClient host)
     {
@@ -31,7 +36,8 @@ public class GameRoom
         RoomName = roomName;
         MaxPlayers = maxPlayers;
         Status = RoomStatus.Waiting;
-        CurrentBattle = null;
+        IsBattleInProgress = false;
+        BattleArchive = null;
         
         _hostPlayerId = host.UserId;
         _players[host.UserId] = host;
@@ -193,5 +199,53 @@ public class GameRoom
             IsReady = kvp.Value.IsReady,
             TeamId = kvp.Value.TeamId
         }).ToList();
+    }
+    
+    /// <summary>
+    /// 开始游戏（进入P2P战斗模式）
+    /// </summary>
+    public void StartGame()
+    {
+        if (Status == RoomStatus.InGame)
+            return;
+            
+        Status = RoomStatus.InGame;
+        IsBattleInProgress = true;
+        CountdownEndTimeUtc = null;
+        
+        Console.WriteLine($"[GameRoom] 房间 {RoomId} 开始P2P战斗");
+    }
+    
+    /// <summary>
+    /// 结束游戏并保存战斗归档
+    /// </summary>
+    public void EndGame(BattleArchive archive)
+    {
+        IsBattleInProgress = false;
+        BattleArchive = archive;
+        Status = RoomStatus.Ended;
+        
+        Console.WriteLine($"[GameRoom] 房间 {RoomId} 战斗结束，归档已保存");
+    }
+    
+    /// <summary>
+    /// 中转消息给房间内其他玩家
+    /// </summary>
+    public List<ConnectedClient> GetMessageRecipients(string fromPlayerId, string toPlayerId = null)
+    {
+        if (!string.IsNullOrEmpty(toPlayerId))
+        {
+            // 发送给特定玩家
+            if (_players.TryGetValue(toPlayerId, out var targetPlayer))
+            {
+                return new List<ConnectedClient> { targetPlayer };
+            }
+            return new List<ConnectedClient>();
+        }
+        else
+        {
+            // 广播给所有其他玩家
+            return _players.Values.Where(p => p.UserId != fromPlayerId).ToList();
+        }
     }
 }

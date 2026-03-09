@@ -4,13 +4,14 @@ using System.Collections.Generic;
 namespace EonVientiane;
 
 /// <summary>
-/// 登录管理器 - 支持本地离线登录和服务器认证
+/// 登录管理器 - 支持本地离线登录和服务器认证，使用加密数据存储
 /// </summary>
 public class LoginManager
 {
     private Dictionary<string, UserProfile> _users;
     private UserProfile _currentUser;
     private LocalAccountManager _localAccountManager;
+    private LocalDataManager _localDataManager;
     private bool _isOfflineMode = false;
     
     public string WalletAddress { get; set; } = "";
@@ -18,16 +19,18 @@ public class LoginManager
     
     public bool IsOfflineMode => _isOfflineMode;
     public LocalAccountManager LocalAccountManager => _localAccountManager;
+    public LocalDataManager LocalDataManager => _localDataManager;
     
     public LoginManager()
     {
         _users = new Dictionary<string, UserProfile>();
         _localAccountManager = new LocalAccountManager();
+        _localDataManager = new LocalDataManager();
         // 客户端支持本地离线账户和服务器认证
     }
     
     /// <summary>
-    /// 本地离线登录 - 使用钱包地址和私钥
+    /// 本地离线登录 - 使用钱包地址和私钥，初始化加密数据管理器
     /// </summary>
     public (bool success, string message) LocalLogin(string walletAddress, string privateKey)
     {
@@ -43,6 +46,10 @@ public class LoginManager
                 account.ProfileData.ContainsKey("level") ? account.ProfileData["level"] : "1"
             );
             _isOfflineMode = true;
+            
+            // 初始化加密数据管理器
+            _localDataManager.InitializeEncryption(walletAddress, privateKey);
+            
             System.Diagnostics.Debug.WriteLine($"本地离线登录成功: {walletAddress}");
             return (true, "本地离线登录成功");
         }
@@ -55,7 +62,28 @@ public class LoginManager
     /// </summary>
     public (bool success, string message) LocalRegister(string walletAddress, string privateKey)
     {
-        return _localAccountManager.CreateAccount(walletAddress, privateKey, walletAddress);
+        var (success, message) = _localAccountManager.CreateAccount(walletAddress, privateKey, walletAddress);
+        
+        if (success)
+        {
+            // 注册成功后自动登录并初始化加密数据
+            var (loginSuccess, loginMessage) = LocalLogin(walletAddress, privateKey);
+            if (loginSuccess)
+            {
+                // 创建初始的本地玩家数据
+                var initialData = new LocalDataManager.LocalPlayerData
+                {
+                    Username = walletAddress,
+                    Email = walletAddress,
+                    Level = 1,
+                    Experience = 0,
+                    Coins = 1000
+                };
+                _localDataManager.SavePlayerData(initialData);
+            }
+        }
+        
+        return (success, message);
     }
     
     /// <summary>
@@ -113,6 +141,7 @@ public class LoginManager
             _currentUser = null;
         }
         _isOfflineMode = false;
+        _localDataManager.ClearSession(); // 清除加密会话
         ClearInput();
     }
     

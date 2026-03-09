@@ -6,7 +6,7 @@ using EonVientiane.Shared;
 namespace EonVientiane;
 
 /// <summary>
-/// 背包管理器
+/// 背包管理器 - 支持离线和在线模式
 /// </summary>
 public class InventoryManager
 {
@@ -27,6 +27,10 @@ public class InventoryManager
     
     // 最多可装备骰子数量
     private int _maxEquippedDice = 8;
+    
+    // 本地数据管理器（用于离线模式）
+    private LocalDataManager _localDataManager;
+    private bool _isDirty = false; // 是否有未保存的更改
     
     /// <summary>
     /// 背包物品列表（只读）
@@ -107,6 +111,122 @@ public class InventoryManager
     {
         _inventoryItems = new List<ItemStack>();
         _equippedItems = new List<ItemStack>();
+    }
+    
+    /// <summary>
+    /// 设置本地数据管理器（用于离线模式）
+    /// </summary>
+    public void SetLocalDataManager(LocalDataManager dataManager)
+    {
+        _localDataManager = dataManager;
+    }
+    
+    /// <summary>
+    /// 从本地数据加载库存
+    /// </summary>
+    public bool LoadFromLocalData(LocalDataManager.LocalPlayerData data)
+    {
+        if (data == null) return false;
+        
+        try
+        {
+            _inventoryItems.Clear();
+            _equippedItems.Clear();
+            
+            // 加载库存物品
+            foreach (var itemData in data.Inventory)
+            {
+                var item = ItemFactory.Create(itemData.ItemId);
+                if (item != null)
+                {
+                    _inventoryItems.Add(new ItemStack(item, itemData.Quantity));
+                }
+            }
+            
+            // 加载已装备物品
+            foreach (var itemData in data.EquippedItems)
+            {
+                var item = ItemFactory.Create(itemData.ItemId);
+                if (item != null)
+                {
+                    _equippedItems.Add(new ItemStack(item, itemData.Quantity));
+                }
+            }
+            
+            _isDirty = false;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[InventoryManager] 加载本地数据失败: {ex.Message}");
+            return false;
+        }
+    }
+    
+    /// <summary>
+    /// 保存库存到本地数据
+    /// </summary>
+    public bool SaveToLocalData(LocalDataManager.LocalPlayerData data)
+    {
+        if (data == null) return false;
+        
+        try
+        {
+            data.Inventory.Clear();
+            data.EquippedItems.Clear();
+            
+            // 保存库存物品
+            foreach (var stack in _inventoryItems)
+            {
+                data.Inventory.Add(new LocalDataManager.InventoryItemData
+                {
+                    ItemId = stack.Item.Id,
+                    Quantity = stack.Quantity
+                });
+            }
+            
+            // 保存已装备物品
+            foreach (var stack in _equippedItems)
+            {
+                data.EquippedItems.Add(new LocalDataManager.InventoryItemData
+                {
+                    ItemId = stack.Item.Id,
+                    Quantity = stack.Quantity
+                });
+            }
+            
+            _isDirty = false;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[InventoryManager] 保存本地数据失败: {ex.Message}");
+            return false;
+        }
+    }
+    
+    /// <summary>
+    /// 标记为已修改（需要保存）
+    /// </summary>
+    private void MarkDirty()
+    {
+        _isDirty = true;
+    }
+    
+    /// <summary>
+    /// 自动保存（如果在离线模式且有更改）
+    /// </summary>
+    public void AutoSave()
+    {
+        if (_isDirty && _localDataManager != null)
+        {
+            var (success, data, _) = _localDataManager.LoadPlayerData();
+            if (success && data != null)
+            {
+                SaveToLocalData(data);
+                _localDataManager.SavePlayerData(data);
+            }
+        }
     }
     
     #region 背包管理
