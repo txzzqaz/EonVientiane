@@ -17,7 +17,7 @@ public static class EquipmentApi
             case "equip":
                 if (args.Length == 0)
                 {
-                    return "❌ 请指定要穿戴的装备名称. 如: equip 铁剑";
+                    return "❌ 请指定要穿戴的装备名称. 如: equip D6";
                 }
 
                 return InvokeInventory("Equip", state, string.Join(' ', args)) as string
@@ -26,7 +26,7 @@ public static class EquipmentApi
             case "unequip":
                 if (args.Length == 0)
                 {
-                    return "❌ 请指定要卸下的装备名称. 如: unequip 铁剑";
+                    return "❌ 请指定要卸下的装备名称. 如: unequip D6";
                 }
 
                 return InvokeInventory("Unequip", state, string.Join(' ', args)) as string
@@ -44,14 +44,7 @@ public static class EquipmentApi
 
     public static string GetStarterEquipmentsJson()
     {
-        var equipments = new List<EquipmentEntry>
-        {
-            new("sword_iron", "铁剑", "MainHand", 0, 5),
-            new("shield_wood", "木盾", "OffHand", 3, 0),
-            new("cloth_armor", "布甲", "Chest", 2, 0),
-        };
-
-        return JsonSerializer.Serialize(equipments);
+        return JsonSerializer.Serialize(Array.Empty<EquipmentEntry>());
     }
 
     private static object? InvokeInventory(string methodName, params object[] args)

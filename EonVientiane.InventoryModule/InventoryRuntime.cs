@@ -27,10 +27,9 @@ public static class InventoryApi
 
     public static void Initialize(IDictionary<string, object> state)
     {
-        var itemsJson = InvokeOptional("EonVientiane.ItemModule", "EonVientiane.ItemModule.ItemApi", "GetStarterItemsJson") as string;
         var equipmentsJson = InvokeOptional("EonVientiane.EquipmentModule", "EonVientiane.EquipmentModule.EquipmentApi", "GetStarterEquipmentsJson") as string;
 
-        state["inventory.items"] = JsonSerializer.Deserialize<List<ItemEntry>>(itemsJson ?? "[]") ?? new List<ItemEntry>();
+        state["inventory.items"] = new List<ItemEntry>();
         state["inventory.equipments"] = JsonSerializer.Deserialize<List<EquipmentEntry>>(equipmentsJson ?? "[]") ?? new List<EquipmentEntry>();
         state["inventory.equippedBySlot"] = new Dictionary<string, EquipmentEntry>(StringComparer.OrdinalIgnoreCase);
     }

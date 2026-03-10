@@ -4,7 +4,8 @@
   <Project Path="EonVientiane.AchievementModule/EonVientiane.AchievementModule.csproj" />
   <Project Path="EonVientiane.Achievements/EonVientiane.AchievementConnectionModule/EonVientiane.AchievementConnectionModule.csproj" />
   <Project Path="EonVientiane.Achievements/EonVientiane.AchievementStatusModule/EonVientiane.AchievementStatusModule.csproj" />
-  <Project Path="EonVientiane.ItemModule/EonVientiane.ItemModule.csproj" />
+  <Project Path="EonVientiane.BattleModule/EonVientiane.BattleModule.csproj" />
+  <Project Path="EonVientiane.EffectModule/EonVientiane.EffectModule.csproj" />
   <Project Path="EonVientiane.EquipmentModule/EonVientiane.EquipmentModule.csproj" />
   <Project Path="EonVientiane.InventoryModule/EonVientiane.InventoryModule.csproj" />
   <Project Path="EonVientiane.LevelModule/EonVientiane.LevelModule.csproj" />

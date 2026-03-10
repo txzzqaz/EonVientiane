@@ -26,6 +26,7 @@ public sealed class PlayerRuntime : IRemoteGameRuntime
         sharedState["player.name"] = playerName;
         sharedState["level.current"] = string.Empty;
 
+        InvokeOptional("EonVientiane.BattleModule", "EonVientiane.BattleModule.BattleApi", "Initialize", sharedState);
         InvokeOptional("EonVientiane.InventoryModule", "EonVientiane.InventoryModule.InventoryApi", "Initialize", sharedState);
         InvokeOptional("EonVientiane.AchievementModule", "EonVientiane.AchievementModule.AchievementRuntime", "Initialize", sharedState);
         InvokeOptional("EonVientiane.AchievementConnectionModule", "EonVientiane.AchievementConnectionModule.ConnectionAchievementRuntime", "Initialize", sharedState);
@@ -195,6 +196,7 @@ status
     {
         var modules = new[]
         {
+            (Assembly: "EonVientiane.BattleModule", Type: "EonVientiane.BattleModule.BattleApi"),
             (Assembly: "EonVientiane.LevelModule", Type: "EonVientiane.LevelModule.LevelApi"),
             (Assembly: "EonVientiane.InventoryModule", Type: "EonVientiane.InventoryModule.InventoryApi"),
             (Assembly: "EonVientiane.EquipmentModule", Type: "EonVientiane.EquipmentModule.EquipmentApi"),
@@ -223,6 +225,7 @@ status
         var moduleHelpTexts = new List<string>();
         var modules = new[]
         {
+            (Assembly: "EonVientiane.BattleModule", Type: "EonVientiane.BattleModule.BattleApi"),
             (Assembly: "EonVientiane.LevelModule", Type: "EonVientiane.LevelModule.LevelApi"),
             (Assembly: "EonVientiane.InventoryModule", Type: "EonVientiane.InventoryModule.InventoryApi"),
             (Assembly: "EonVientiane.EquipmentModule", Type: "EonVientiane.EquipmentModule.EquipmentApi"),

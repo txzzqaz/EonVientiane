@@ -20,10 +20,11 @@ var logicStoreRoot = Environment.GetEnvironmentVariable("EV_LOGIC_STORE")
     ?? Path.Combine(app.Environment.ContentRootPath, "logic-store");
 var publicKeyPath = Path.Combine(logicStoreRoot, "keys", "server_public.pem");
 var privateKeyPath = Path.Combine(logicStoreRoot, "keys", "server_private.pem");
-var itemModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.ItemModule", "EonVientiane.ItemModule.dll");
 var equipmentModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.EquipmentModule", "EonVientiane.EquipmentModule.dll");
 var inventoryModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.InventoryModule", "EonVientiane.InventoryModule.dll");
 var levelModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.LevelModule", "EonVientiane.LevelModule.dll");
+var effectModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.EffectModule", "EonVientiane.EffectModule.dll");
+var battleModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.BattleModule", "EonVientiane.BattleModule.dll");
 var playerModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.PlayerModule", "EonVientiane.PlayerModule.dll");
 var achievementModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.AchievementModule", "EonVientiane.AchievementModule.dll");
 var achievementConnectionModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.AchievementConnectionModule", "EonVientiane.AchievementConnectionModule.dll");
@@ -73,19 +74,21 @@ app.MapPost("/api/logic/connect", (ConnectBootstrapRequest request) =>
     var issuedFiles = new List<string>();
     var manifests = new List<PackageManifestItem>();
     const string playerVersion = "1.0.0";
-    const string itemVersion = "1.0.0";
     const string equipmentVersion = "1.0.0";
     const string inventoryVersion = "1.0.0";
     const string levelVersion = "1.0.0";
+    const string effectVersion = "1.0.0";
+    const string battleVersion = "1.0.0";
     const string achievementSystemVersion = "1.0.0";
     const string firstAchievementVersion = "1.0.0";
     const string statusAchievementVersion = "1.0.0";
 
     IssueDllModuleIfNeeded("module.player.core", "module.player.core.json", playerModuleDllPath, playerVersion);
-    IssueDllModuleIfNeeded("module.item.core", "module.item.core.json", itemModuleDllPath, itemVersion);
     IssueDllModuleIfNeeded("module.equipment.core", "module.equipment.core.json", equipmentModuleDllPath, equipmentVersion);
     IssueDllModuleIfNeeded("module.inventory.core", "module.inventory.core.json", inventoryModuleDllPath, inventoryVersion);
     IssueDllModuleIfNeeded("module.level.core", "module.level.core.json", levelModuleDllPath, levelVersion);
+    IssueDllModuleIfNeeded("module.effect.core", "module.effect.core.json", effectModuleDllPath, effectVersion);
+    IssueDllModuleIfNeeded("module.battle.core", "module.battle.core.json", battleModuleDllPath, battleVersion);
     IssueDllModuleIfNeeded("module.achievement.core", "module.achievement.core.json", achievementModuleDllPath, achievementSystemVersion);
     IssueDllModuleIfNeeded("module.achievement.connection", "module.achievement.connection.json", achievementConnectionModuleDllPath, firstAchievementVersion);
     IssueDllModuleIfNeeded("module.achievement.status", "module.achievement.status.json", achievementStatusModuleDllPath, statusAchievementVersion);
@@ -138,7 +141,7 @@ app.MapPost("/api/logic/connect", (ConnectBootstrapRequest request) =>
     {
         if (!existingModules.Contains(moduleId))
         {
-            return false;
+            return true;
         }
 
         if (!moduleVersions.TryGetValue(moduleId, out var localVersion))
@@ -275,6 +278,16 @@ app.MapPost("/api/logic/achievement/verify", (AchievementVerifyRequest request) 
             case "module.player.core":
                 fileName = "module.player.core.json";
                 dllPath = playerModuleDllPath;
+                version = "1.0.0";
+                return true;
+            case "module.effect.core":
+                fileName = "module.effect.core.json";
+                dllPath = effectModuleDllPath;
+                version = "1.0.0";
+                return true;
+            case "module.battle.core":
+                fileName = "module.battle.core.json";
+                dllPath = battleModuleDllPath;
                 version = "1.0.0";
                 return true;
             case "module.achievement.core":
