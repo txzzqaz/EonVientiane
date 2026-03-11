@@ -304,6 +304,15 @@
 - 成就模块下发流程
 - 独立战斗模块（`EonVientiane.BattleModule`）
 - 独立效果模块（`EonVientiane.EffectModule`）
+- 战斗结束后自动上报服务端签验并返回客户端本地存储
+
+### 战斗签验链路（当前实现）
+
+1. `BattleModule` 在战斗结束时生成战斗过程记录（含 battleId、回合、单位快照、日志）。
+2. `PlayerModule` 读取该记录并调用服务端 `POST /api/logic/battle/verify`。
+3. 服务端对记录进行基础结构校验，计算记录哈希并使用服务端私钥签名。
+4. 服务端返回签验结果（记录原文 + 哈希 + 签名），并在服务端 `logic-store/battle-records/<userId>/` 留存。
+5. 客户端将签验结果落盘到本地 `.../LogicPackages/battle-records/` 目录。
 
 ### 尚未完成
 

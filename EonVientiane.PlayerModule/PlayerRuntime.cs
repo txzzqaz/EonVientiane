@@ -213,11 +213,48 @@ status
 
             var result = InvokeOptional(module.Assembly, module.Type, "ExecuteCommand", sharedState, command, args) as string;
             output = result ?? string.Empty;
+
+            if (string.Equals(module.Assembly, "EonVientiane.BattleModule", StringComparison.Ordinal))
+            {
+                var battleVerifyNotice = TryVerifyCompletedBattleAndStore();
+                if (!string.IsNullOrWhiteSpace(battleVerifyNotice))
+                {
+                    output = string.IsNullOrWhiteSpace(output)
+                        ? battleVerifyNotice
+                        : $"{output}{Environment.NewLine}{battleVerifyNotice}";
+                }
+            }
+
             return true;
         }
 
         output = string.Empty;
         return false;
+    }
+
+    private string TryVerifyCompletedBattleAndStore()
+    {
+        var recordJson = InvokeOptional(
+            "EonVientiane.BattleModule",
+            "EonVientiane.BattleModule.BattleApi",
+            "ConsumeLastCompletedRecord",
+            sharedState) as string;
+
+        if (string.IsNullOrWhiteSpace(recordJson))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var response = RequestBattleVerification(recordJson);
+            SaveVerifiedBattleRecordToLocal(response);
+            return $"✓ 战斗过程签验完成，记录已保存: {response.BattleId}";
+        }
+        catch (Exception ex)
+        {
+            return $"⚠ 战斗过程签验失败: {ex.Message}";
+        }
     }
 
     private string BuildModuleHelp()
@@ -319,6 +356,67 @@ status
             SyncedModuleIds = syncedModuleIds,
             GrantedAchievementIds = verifyResponse.GrantedAchievementIds,
         };
+    }
+
+    private BattleVerifyResponse RequestBattleVerification(string battleRecordJson)
+    {
+        var userId = Environment.GetEnvironmentVariable("EV_USER_ID");
+        var serverBaseUrl = Environment.GetEnvironmentVariable("EV_SERVER_URL") ?? "http://127.0.0.1:5000";
+
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            throw new InvalidOperationException("缺少运行时用户上下文");
+        }
+
+        var payload = new BattleVerifyRequest
+        {
+            UserId = userId,
+            BattleRecordJson = battleRecordJson,
+        };
+
+        using var client = new HttpClient
+        {
+            BaseAddress = new Uri(serverBaseUrl.TrimEnd('/')),
+            Timeout = TimeSpan.FromSeconds(15),
+        };
+
+        using var response = client.PostAsJsonAsync("/api/logic/battle/verify", payload).GetAwaiter().GetResult();
+        response.EnsureSuccessStatusCode();
+
+        return response.Content.ReadFromJsonAsync<BattleVerifyResponse>().GetAwaiter().GetResult()
+            ?? throw new InvalidOperationException("战斗签验响应无效");
+    }
+
+    private void SaveVerifiedBattleRecordToLocal(BattleVerifyResponse response)
+    {
+        var packageDir = Environment.GetEnvironmentVariable("EV_USER_PACKAGE_DIR");
+        if (string.IsNullOrWhiteSpace(packageDir))
+        {
+            throw new InvalidOperationException("缺少运行时本地包目录上下文");
+        }
+
+        var safeBattleId = SanitizePathPart(response.BattleId);
+        var rootDir = Path.GetFullPath(Path.Combine(packageDir, "..", "battle-records"));
+        Directory.CreateDirectory(rootDir);
+
+        var outputPath = Path.Combine(rootDir, $"{safeBattleId}-{DateTime.UtcNow:yyyyMMddHHmmssfff}.signed.json");
+        var content = JsonSerializer.Serialize(response, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+        });
+
+        File.WriteAllText(outputPath, content);
+    }
+
+    private static string SanitizePathPart(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return "unknown";
+        }
+
+        var safe = string.Concat(raw.Where(c => char.IsLetterOrDigit(c) || c is '-' or '_'));
+        return string.IsNullOrWhiteSpace(safe) ? "unknown" : safe;
     }
 
     private static (HashSet<string> AchievementIds, HashSet<string> ModuleIds, Dictionary<string, string> ModuleVersions) ScanLocalPackageState(string packageDir)
@@ -469,5 +567,21 @@ status
         public int DownloadedCount { get; set; }
         public List<string> SyncedModuleIds { get; set; } = new();
         public List<string> GrantedAchievementIds { get; set; } = new();
+    }
+
+    private sealed class BattleVerifyRequest
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string BattleRecordJson { get; set; } = string.Empty;
+    }
+
+    private sealed class BattleVerifyResponse
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string BattleId { get; set; } = string.Empty;
+        public string BattleRecordJson { get; set; } = string.Empty;
+        public string RecordHash { get; set; } = string.Empty;
+        public DateTime VerifiedAtUtc { get; set; }
+        public string Signature { get; set; } = string.Empty;
     }
 }

@@ -314,6 +314,58 @@ app.MapPost("/api/logic/achievement/verify", (AchievementVerifyRequest request) 
     }
 });
 
+app.MapPost("/api/logic/battle/verify", (BattleVerifyRequest request) =>
+{
+    if (string.IsNullOrWhiteSpace(request.UserId) || string.IsNullOrWhiteSpace(request.BattleRecordJson))
+    {
+        return Results.BadRequest(new { message = "userId and battleRecordJson are required" });
+    }
+
+    JsonElement battleRecord;
+    try
+    {
+        battleRecord = JsonSerializer.Deserialize<JsonElement>(request.BattleRecordJson);
+    }
+    catch
+    {
+        return Results.BadRequest(new { message = "battleRecordJson is invalid json" });
+    }
+
+    if (battleRecord.ValueKind != JsonValueKind.Object)
+    {
+        return Results.BadRequest(new { message = "battleRecordJson must be a json object" });
+    }
+
+    if (!battleRecord.TryGetProperty("battleId", out var battleIdElement) || string.IsNullOrWhiteSpace(battleIdElement.GetString()))
+    {
+        return Results.BadRequest(new { message = "battleId is required in battleRecordJson" });
+    }
+
+    if (!battleRecord.TryGetProperty("log", out var logElement) || logElement.ValueKind != JsonValueKind.Array || logElement.GetArrayLength() == 0)
+    {
+        return Results.BadRequest(new { message = "battle log is required in battleRecordJson" });
+    }
+
+    var now = DateTime.UtcNow;
+    var battleId = battleIdElement.GetString()!.Trim();
+    var battleHashBase64 = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(request.BattleRecordJson)));
+
+    var responsePayload = new VerifiedBattleRecord
+    {
+        UserId = request.UserId.Trim(),
+        BattleId = battleId,
+        BattleRecordJson = request.BattleRecordJson,
+        RecordHash = battleHashBase64,
+        VerifiedAtUtc = now,
+    };
+
+    var signaturePayload = BuildBattleVerificationSignaturePayload(responsePayload);
+    responsePayload.Signature = Convert.ToBase64String(encryptionService.SignData(signaturePayload, serverPrivateKeyPem));
+
+    SaveVerifiedBattleRecord(logicStoreRoot, responsePayload);
+    return Results.Ok(responsePayload);
+});
+
 app.Run();
 
 static void EnsureServerSigningKeys(EncryptionService encryptionService, string publicKeyPath, string privateKeyPath)
@@ -428,6 +480,41 @@ static int CompareModuleVersion(string localVersion, string serverVersion)
     return string.Compare(localVersion, serverVersion, StringComparison.Ordinal);
 }
 
+static byte[] BuildBattleVerificationSignaturePayload(VerifiedBattleRecord record)
+{
+    var payload = string.Join('\n',
+        record.UserId,
+        record.BattleId,
+        record.RecordHash,
+        record.VerifiedAtUtc.ToString("O"),
+        record.BattleRecordJson);
+
+    return Encoding.UTF8.GetBytes(payload);
+}
+
+static void SaveVerifiedBattleRecord(string logicStoreRoot, VerifiedBattleRecord record)
+{
+    var safeUserId = SanitizePathPart(record.UserId);
+    var safeBattleId = SanitizePathPart(record.BattleId);
+    var fileName = $"{safeBattleId}-{DateTime.UtcNow:yyyyMMddHHmmssfff}.signed.json";
+    var directory = Path.Combine(logicStoreRoot, "battle-records", safeUserId);
+    Directory.CreateDirectory(directory);
+
+    var filePath = Path.Combine(directory, fileName);
+    var json = JsonSerializer.Serialize(record, new JsonSerializerOptions
+    {
+        WriteIndented = true,
+    });
+
+    File.WriteAllText(filePath, json);
+}
+
+static string SanitizePathPart(string raw)
+{
+    var safe = string.Concat(raw.Where(c => char.IsLetterOrDigit(c) || c is '-' or '_'));
+    return string.IsNullOrWhiteSpace(safe) ? "unknown" : safe;
+}
+
 sealed class ConnectBootstrapRequest
 {
     public string UserId { get; set; } = string.Empty;
@@ -457,6 +544,22 @@ sealed class PackageManifestItem
     public DateTime UpdatedAtUtc { get; set; }
     public long SizeBytes { get; set; }
     public string PackageBase64 { get; set; } = string.Empty;
+}
+
+sealed class BattleVerifyRequest
+{
+    public string UserId { get; set; } = string.Empty;
+    public string BattleRecordJson { get; set; } = string.Empty;
+}
+
+sealed class VerifiedBattleRecord
+{
+    public string UserId { get; set; } = string.Empty;
+    public string BattleId { get; set; } = string.Empty;
+    public string BattleRecordJson { get; set; } = string.Empty;
+    public string RecordHash { get; set; } = string.Empty;
+    public DateTime VerifiedAtUtc { get; set; }
+    public string Signature { get; set; } = string.Empty;
 }
 
 sealed class UserAchievementState

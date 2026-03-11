@@ -1,6 +1,7 @@
 namespace EonVientiane.BattleModule;
 
 using System.Text;
+using System.Text.Json;
 
 public static partial class BattleApi
 {
@@ -38,6 +39,7 @@ public static partial class BattleApi
             new List<string>());
 
         ClearEffects(state);
+        state[LastCompletedRecordStateKey] = null!;
 
         foreach (var unit in session.Units.Values)
         {
@@ -116,6 +118,11 @@ public static partial class BattleApi
         session.PendingAttack = null;
         target.PublicValues.Remove("ATKP");
 
+        if (session.IsCompleted)
+        {
+            SaveCompletedBattleRecord(state, session, "completed");
+        }
+
         if (!session.IsCompleted)
         {
             AdvanceTurn(session, target.UnitId);
@@ -150,6 +157,12 @@ public static partial class BattleApi
 
     private static string EndBattle(IDictionary<string, object> state)
     {
+        var session = GetSession(state);
+        if (session is not null)
+        {
+            SaveCompletedBattleRecord(state, session, session.IsCompleted ? "completed" : "manual-end");
+        }
+
         state[SessionStateKey] = null!;
         ClearEffects(state);
         return "✓ 当前战斗已结束。";
@@ -303,5 +316,45 @@ public static partial class BattleApi
     private static int GetPublicValue(Dictionary<string, int> values, string key)
     {
         return values.TryGetValue(key, out var value) ? value : 0;
+    }
+
+    private static void SaveCompletedBattleRecord(IDictionary<string, object> state, BattleSession session, string endReason)
+    {
+        var unitSnapshots = session.Units.Values
+            .Select(unit => new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["unitId"] = unit.UnitId,
+                ["displayName"] = unit.DisplayName,
+                ["publicValues"] = new Dictionary<string, int>(unit.PublicValues, StringComparer.Ordinal),
+                ["loadout"] = unit.Loadout
+                    .Select(item => new Dictionary<string, object>(StringComparer.Ordinal)
+                    {
+                        ["itemId"] = item.ItemId,
+                        ["name"] = item.DisplayName,
+                        ["kind"] = item.Kind,
+                        ["isAccessory"] = item.IsAccessory,
+                        ["isDice"] = item.IsDice,
+                        ["supportsActive"] = item.SupportsActive,
+                        ["supportsPassive"] = item.SupportsPassive,
+                    })
+                    .ToList(),
+            })
+            .ToList();
+
+        var record = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["battleId"] = session.BattleId,
+            ["turnNumber"] = session.TurnNumber,
+            ["endReason"] = endReason,
+            ["isCompleted"] = session.IsCompleted,
+            ["winnerUnitId"] = session.WinnerUnitId,
+            ["currentActorId"] = session.CurrentActorId,
+            ["turnOrder"] = session.TurnOrder.ToArray(),
+            ["units"] = unitSnapshots,
+            ["log"] = session.Log.ToArray(),
+            ["capturedAtUtc"] = DateTime.UtcNow,
+        };
+
+        state[LastCompletedRecordStateKey] = JsonSerializer.Serialize(record);
     }
 }

@@ -5,6 +5,7 @@ using System.Collections;
 public static partial class BattleApi
 {
     private const string SessionStateKey = "battle.session";
+    private const string LastCompletedRecordStateKey = "battle.lastCompletedRecord";
     private const string BattleCommand = "battle";
 
     public static bool CanHandleCommand(string command)
@@ -21,6 +22,18 @@ public static partial class BattleApi
     {
         EnsureEffectStore(state);
         state[SessionStateKey] = null!;
+        state[LastCompletedRecordStateKey] = null!;
+    }
+
+    public static string? ConsumeLastCompletedRecord(IDictionary<string, object> state)
+    {
+        if (!state.TryGetValue(LastCompletedRecordStateKey, out var value) || value is not string text || string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        state[LastCompletedRecordStateKey] = null!;
+        return text;
     }
 
     public static string? ExecuteCommand(IDictionary<string, object> state, string command, string[] args)
