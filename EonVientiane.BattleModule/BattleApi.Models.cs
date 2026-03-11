@@ -1,6 +1,8 @@
 namespace EonVientiane.BattleModule;
 
+using System.Collections;
 using System.Reflection;
+using System.Text.Json;
 
 public static partial class BattleApi
 {
@@ -12,20 +14,26 @@ public static partial class BattleApi
             List<string> turnOrder,
             string currentActorId,
             int turnNumber,
+            DateTime battleStartedAtUtc,
+            DateTime turnStartedAtUtc,
             string? winnerUnitId,
             bool isCompleted,
             PendingAttack? pendingAttack,
-            List<string> log)
+            List<string> log,
+            string battleMode)
         {
             BattleId = battleId;
             Units = units;
             TurnOrder = turnOrder;
             CurrentActorId = currentActorId;
             TurnNumber = turnNumber;
+            BattleStartedAtUtc = battleStartedAtUtc;
+            TurnStartedAtUtc = turnStartedAtUtc;
             WinnerUnitId = winnerUnitId;
             IsCompleted = isCompleted;
             PendingAttack = pendingAttack;
             Log = log;
+            BattleMode = battleMode;
         }
 
         public string BattleId { get; }
@@ -33,10 +41,14 @@ public static partial class BattleApi
         public List<string> TurnOrder { get; }
         public string CurrentActorId { get; set; }
         public int TurnNumber { get; set; }
+        public DateTime BattleStartedAtUtc { get; }
+        public DateTime TurnStartedAtUtc { get; set; }
         public string? WinnerUnitId { get; set; }
         public bool IsCompleted { get; set; }
         public PendingAttack? PendingAttack { get; set; }
         public List<string> Log { get; }
+        public string BattleMode { get; }
+        public string? WinnerSideId { get; set; }
 
         public BattleUnit GetCurrentActor() => Units[CurrentActorId];
     }
@@ -44,8 +56,13 @@ public static partial class BattleApi
     private sealed record BattleUnit(
         string UnitId,
         string DisplayName,
+        string SideId,
+        string SideName,
         Dictionary<string, int> PublicValues,
-        List<BattleItemDescriptor> Loadout);
+        List<BattleItemDescriptor> Loadout,
+        bool IsLocalControlled,
+        bool IsLoadoutVisible,
+        Type? ControllerRuntimeType);
 
     private sealed record BattleItemDescriptor(
         string ItemId,
@@ -59,16 +76,31 @@ public static partial class BattleApi
 
     private sealed record PendingAttack(string SourceUnitId, string TargetUnitId, int AttackValue);
 
-    private sealed record InventoryEquipmentSnapshot(string Id, string Name, string Slot, int ArmorValue, int AttackBonus)
+    private sealed record InventoryEquipmentSnapshot(string Id, string Name, string Slot)
     {
         public static InventoryEquipmentSnapshot? FromObject(object value)
         {
-            var type = value.GetType();
-            var id = type.GetProperty("Id")?.GetValue(value)?.ToString();
-            var name = type.GetProperty("Name")?.GetValue(value)?.ToString();
-            var slot = type.GetProperty("Slot")?.GetValue(value)?.ToString() ?? string.Empty;
-            var armorValue = TryReadInt(type.GetProperty("ArmorValue")?.GetValue(value));
-            var attackBonus = TryReadInt(type.GetProperty("AttackBonus")?.GetValue(value));
+            object? idObj;
+            object? nameObj;
+            object? slotObj;
+
+            if (value is IDictionary map)
+            {
+                idObj = TryGetMapValue(map, "Id");
+                nameObj = TryGetMapValue(map, "Name");
+                slotObj = TryGetMapValue(map, "Slot");
+            }
+            else
+            {
+                var type = value.GetType();
+                idObj = type.GetProperty("Id")?.GetValue(value);
+                nameObj = type.GetProperty("Name")?.GetValue(value);
+                slotObj = type.GetProperty("Slot")?.GetValue(value);
+            }
+
+            var id = TryReadString(idObj);
+            var name = TryReadString(nameObj);
+            var slot = TryReadString(slotObj) ?? string.Empty;
 
             if (string.IsNullOrWhiteSpace(name))
             {
@@ -78,20 +110,31 @@ public static partial class BattleApi
             return new InventoryEquipmentSnapshot(
                 string.IsNullOrWhiteSpace(id) ? name : id,
                 name,
-                slot,
-                armorValue,
-                attackBonus);
+                slot);
         }
 
-        private static int TryReadInt(object? value)
+        private static object? TryGetMapValue(IDictionary map, string key)
+        {
+            foreach (DictionaryEntry entry in map)
+            {
+                if (entry.Key?.ToString()?.Equals(key, StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    return entry.Value;
+                }
+            }
+
+            return null;
+        }
+
+        private static string? TryReadString(object? value)
         {
             return value switch
             {
-                int i => i,
-                long l when l <= int.MaxValue && l >= int.MinValue => (int)l,
-                _ when int.TryParse(value?.ToString(), out var parsed) => parsed,
-                _ => 0,
+                JsonElement e when e.ValueKind == JsonValueKind.String => e.GetString(),
+                JsonElement e => e.ToString(),
+                _ => value?.ToString(),
             };
         }
+
     }
 }

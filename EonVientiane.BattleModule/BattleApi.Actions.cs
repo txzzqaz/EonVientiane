@@ -113,8 +113,8 @@ public static partial class BattleApi
                 ["turnNumber"] = session.TurnNumber,
                 ["currentActorId"] = session.CurrentActorId,
             },
-            ["owner"] = BuildUnitContext(owner),
-            ["target"] = BuildUnitContext(target),
+            ["owner"] = BuildUnitContext(owner, includeLoadout: true),
+            ["target"] = BuildUnitContext(target, includeLoadout: false),
             ["source"] = new Dictionary<string, object>(StringComparer.Ordinal)
             {
                 ["itemId"] = source.ItemId,
@@ -126,14 +126,21 @@ public static partial class BattleApi
         };
     }
 
-    private static Dictionary<string, object> BuildUnitContext(BattleUnit unit)
+    private static Dictionary<string, object> BuildUnitContext(BattleUnit unit, bool includeLoadout)
     {
-        return new Dictionary<string, object>(StringComparer.Ordinal)
+        var context = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             ["unitId"] = unit.UnitId,
             ["displayName"] = unit.DisplayName,
+            ["sideId"] = unit.SideId,
+            ["sideName"] = unit.SideName,
             ["publicValues"] = new Dictionary<string, object>(unit.PublicValues.ToDictionary(x => x.Key, x => (object)x.Value), StringComparer.Ordinal),
-            ["loadout"] = unit.Loadout
+            ["loadoutVisible"] = includeLoadout,
+        };
+
+        if (includeLoadout)
+        {
+            context["loadout"] = unit.Loadout
                 .Select(x => new Dictionary<string, object>(StringComparer.Ordinal)
                 {
                     ["itemId"] = x.ItemId,
@@ -142,8 +149,10 @@ public static partial class BattleApi
                     ["supportsActive"] = x.SupportsActive,
                     ["supportsPassive"] = x.SupportsPassive,
                 })
-                .ToList(),
-        };
+                .ToList();
+        }
+
+        return context;
     }
 
     private static BattleItemDescriptor? SelectActiveDice(BattleUnit actor, string? requestedDiceName)
@@ -156,7 +165,25 @@ public static partial class BattleApi
 
         if (string.IsNullOrWhiteSpace(requestedDiceName))
         {
-            return candidates[0];
+            return null;
+        }
+
+        return candidates.FirstOrDefault(x =>
+            x.DisplayName.Equals(requestedDiceName, StringComparison.OrdinalIgnoreCase) ||
+            x.ItemId.Equals(requestedDiceName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static BattleItemDescriptor? SelectPassiveDice(BattleUnit actor, string? requestedDiceName)
+    {
+        var candidates = actor.Loadout.Where(x => x.IsDice && x.SupportsPassive).ToList();
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(requestedDiceName))
+        {
+            return null;
         }
 
         return candidates.FirstOrDefault(x =>

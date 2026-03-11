@@ -25,6 +25,10 @@ var inventoryModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPat
 var levelModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.LevelModule", "EonVientiane.LevelModule.dll");
 var effectModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.EffectModule", "EonVientiane.EffectModule.dll");
 var battleModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.BattleModule", "EonVientiane.BattleModule.dll");
+var networkBattleModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.NetworkBattleModule", "EonVientiane.NetworkBattleModule.dll");
+var firstLevelModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVinetiane.Levels/EonVientiane.Level.First", "EonVientiane.Level.First.dll");
+var selfAccessoryModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.Items/EonVientiane.Item.Accessory.Self", "EonVientiane.Item.Accessory.Self.dll");
+var d6ModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.Items/EonVientiane.Item.Dice.D6", "EonVientiane.Item.Dice.D6.dll");
 var playerModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.PlayerModule", "EonVientiane.PlayerModule.dll");
 var achievementModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.AchievementModule", "EonVientiane.AchievementModule.dll");
 var achievementConnectionModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.AchievementConnectionModule", "EonVientiane.AchievementConnectionModule.dll");
@@ -79,6 +83,10 @@ app.MapPost("/api/logic/connect", (ConnectBootstrapRequest request) =>
     const string levelVersion = "1.0.0";
     const string effectVersion = "1.0.0";
     const string battleVersion = "1.0.0";
+    const string networkBattleVersion = "1.0.0";
+    const string firstLevelVersion = "1.0.0";
+    const string selfAccessoryVersion = "1.0.0";
+    const string d6Version = "1.0.0";
     const string achievementSystemVersion = "1.0.0";
     const string firstAchievementVersion = "1.0.0";
     const string statusAchievementVersion = "1.0.0";
@@ -89,6 +97,10 @@ app.MapPost("/api/logic/connect", (ConnectBootstrapRequest request) =>
     IssueDllModuleIfNeeded("module.level.core", "module.level.core.json", levelModuleDllPath, levelVersion);
     IssueDllModuleIfNeeded("module.effect.core", "module.effect.core.json", effectModuleDllPath, effectVersion);
     IssueDllModuleIfNeeded("module.battle.core", "module.battle.core.json", battleModuleDllPath, battleVersion);
+    IssueDllModuleIfNeeded("module.network-battle.core", "module.network-battle.core.json", networkBattleModuleDllPath, networkBattleVersion);
+    IssueDllModuleIfNeeded("module.level.first", "module.level.first.json", firstLevelModuleDllPath, firstLevelVersion);
+    IssueDllModuleIfNeeded("module.item.accessory.self", "module.item.accessory.self.json", selfAccessoryModuleDllPath, selfAccessoryVersion);
+    IssueDllModuleIfNeeded("module.item.dice.d6", "module.item.dice.d6.json", d6ModuleDllPath, d6Version);
     IssueDllModuleIfNeeded("module.achievement.core", "module.achievement.core.json", achievementModuleDllPath, achievementSystemVersion);
     IssueDllModuleIfNeeded("module.achievement.connection", "module.achievement.connection.json", achievementConnectionModuleDllPath, firstAchievementVersion);
     IssueDllModuleIfNeeded("module.achievement.status", "module.achievement.status.json", achievementStatusModuleDllPath, statusAchievementVersion);
@@ -181,6 +193,8 @@ app.MapPost("/api/logic/achievement/verify", (AchievementVerifyRequest request) 
         .Concat(existingAchievements)
         .ToHashSet(StringComparer.Ordinal);
 
+    var recentBattleRecords = ValidateRecentClientBattleRecords(request, serverPublicKeyPem, maxAcceptedCount: 20);
+
     var grantedAchievementIds = new List<string>();
     var issueModuleIds = new HashSet<string>(StringComparer.Ordinal);
 
@@ -253,6 +267,7 @@ app.MapPost("/api/logic/achievement/verify", (AchievementVerifyRequest request) 
     {
         issuedFiles,
         grantedAchievementIds,
+        recentBattleRecordsAccepted = recentBattleRecords.Count,
         manifests,
     });
 
@@ -288,6 +303,16 @@ app.MapPost("/api/logic/achievement/verify", (AchievementVerifyRequest request) 
             case "module.battle.core":
                 fileName = "module.battle.core.json";
                 dllPath = battleModuleDllPath;
+                version = "1.0.0";
+                return true;
+            case "module.item.dice.d6":
+                fileName = "module.item.dice.d6.json";
+                dllPath = d6ModuleDllPath;
+                version = "1.0.0";
+                return true;
+            case "module.item.accessory.self":
+                fileName = "module.item.accessory.self.json";
+                dllPath = selfAccessoryModuleDllPath;
                 version = "1.0.0";
                 return true;
             case "module.achievement.core":
@@ -427,7 +452,11 @@ static LogicPackageEnvelope BuildSignedEncryptedEnvelope(
 
 static string ResolveModuleDllPath(string contentRootPath, string projectName, string dllName)
 {
-    var envKey = $"EV_{projectName.Replace('.', '_').ToUpperInvariant()}_DLL";
+    var envProjectName = projectName
+        .Replace('.', '_')
+        .Replace('/', '_')
+        .Replace('\\', '_');
+    var envKey = $"EV_{envProjectName.ToUpperInvariant()}_DLL";
     var fromEnv = Environment.GetEnvironmentVariable(envKey);
     if (!string.IsNullOrWhiteSpace(fromEnv) && File.Exists(fromEnv))
     {
@@ -515,6 +544,121 @@ static string SanitizePathPart(string raw)
     return string.IsNullOrWhiteSpace(safe) ? "unknown" : safe;
 }
 
+static List<ClientVerifiedBattleRecord> ValidateRecentClientBattleRecords(
+    AchievementVerifyRequest request,
+    string serverPublicKeyPem,
+    int maxAcceptedCount)
+{
+    var validRecords = new List<ClientVerifiedBattleRecord>();
+    if (request.RecentBattleRecords is null || request.RecentBattleRecords.Count == 0 || maxAcceptedCount <= 0)
+    {
+        return validRecords;
+    }
+
+    var expectedUserId = request.UserId.Trim();
+
+    foreach (var record in request.RecentBattleRecords
+                 .OrderByDescending(x => x.VerifiedAtUtc)
+                 .Take(maxAcceptedCount))
+    {
+        if (!IsValidRecordShape(record))
+        {
+            continue;
+        }
+
+        if (!string.Equals(record.UserId.Trim(), expectedUserId, StringComparison.Ordinal))
+        {
+            continue;
+        }
+
+        var expectedHash = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(record.BattleRecordJson)));
+        if (!string.Equals(expectedHash, record.RecordHash, StringComparison.Ordinal))
+        {
+            continue;
+        }
+
+        if (!TryParseBattleRecordJson(record.BattleRecordJson, out var battleRecord) ||
+            battleRecord.ValueKind != JsonValueKind.Object ||
+            !battleRecord.TryGetProperty("battleId", out var battleIdElement))
+        {
+            continue;
+        }
+
+        var battleId = battleIdElement.GetString()?.Trim();
+        if (string.IsNullOrWhiteSpace(battleId) || !string.Equals(battleId, record.BattleId.Trim(), StringComparison.Ordinal))
+        {
+            continue;
+        }
+
+        byte[] signatureBytes;
+        try
+        {
+            signatureBytes = Convert.FromBase64String(record.Signature);
+        }
+        catch
+        {
+            continue;
+        }
+
+        var signaturePayload = BuildBattleVerificationSignaturePayload(new VerifiedBattleRecord
+        {
+            UserId = record.UserId.Trim(),
+            BattleId = record.BattleId.Trim(),
+            BattleRecordJson = record.BattleRecordJson,
+            RecordHash = record.RecordHash,
+            VerifiedAtUtc = record.VerifiedAtUtc,
+            Signature = record.Signature,
+        });
+
+        if (!VerifySignatureByServerPublicKey(signaturePayload, signatureBytes, serverPublicKeyPem))
+        {
+            continue;
+        }
+
+        validRecords.Add(record);
+    }
+
+    return validRecords;
+}
+
+static bool IsValidRecordShape(ClientVerifiedBattleRecord record)
+{
+    return record is not null
+        && !string.IsNullOrWhiteSpace(record.UserId)
+        && !string.IsNullOrWhiteSpace(record.BattleId)
+        && !string.IsNullOrWhiteSpace(record.BattleRecordJson)
+        && !string.IsNullOrWhiteSpace(record.RecordHash)
+        && !string.IsNullOrWhiteSpace(record.Signature);
+}
+
+static bool TryParseBattleRecordJson(string json, out JsonElement battleRecord)
+{
+    try
+    {
+        battleRecord = JsonSerializer.Deserialize<JsonElement>(json);
+        return true;
+    }
+    catch
+    {
+        battleRecord = default;
+        return false;
+    }
+}
+
+static bool VerifySignatureByServerPublicKey(byte[] data, byte[] signature, string serverPublicKeyPem)
+{
+    try
+    {
+        using var rsa = RSA.Create();
+        rsa.ImportFromPem(serverPublicKeyPem);
+        return rsa.VerifyData(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+    }
+    catch
+    {
+        return false;
+    }
+}
+
 sealed class ConnectBootstrapRequest
 {
     public string UserId { get; set; } = string.Empty;
@@ -532,6 +676,17 @@ sealed class AchievementVerifyRequest
     public List<string> ExistingAchievementIds { get; set; } = new();
     public List<string> ExistingModuleIds { get; set; } = new();
     public Dictionary<string, string> ModuleVersions { get; set; } = new();
+    public List<ClientVerifiedBattleRecord> RecentBattleRecords { get; set; } = new();
+}
+
+sealed class ClientVerifiedBattleRecord
+{
+    public string UserId { get; set; } = string.Empty;
+    public string BattleId { get; set; } = string.Empty;
+    public string BattleRecordJson { get; set; } = string.Empty;
+    public string RecordHash { get; set; } = string.Empty;
+    public DateTime VerifiedAtUtc { get; set; }
+    public string Signature { get; set; } = string.Empty;
 }
 
 sealed class PackageManifestItem

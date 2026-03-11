@@ -15,7 +15,14 @@ public static partial class BattleApi
 
     public static string GetHelpText()
     {
-        return "battle start [mirror]\n  开始一场镜像战斗\nbattle status\n  查看当前战斗状态\nbattle active <目标> [骰子名]\n  执行主动骰子动作\nbattle pass\n  跳过当前回合\nbattle end\n  结束当前战斗";
+        return "battle status\n  查看当前战斗状态\nbattle active ...\n  主动回合: battle active <目标> <主动骰子名>\n  被动回合: battle active <被动骰子名>\nbattle pass\n  主动回合: 跳过当前回合\n  被动回合: 不使用被动骰，直接将 ATKP 转化为伤害\nbattle end\n  结束当前战斗\n\n说明: 战斗开始应由业务模块调用 BattleApi.StartSession(...)，例如 Level 模块在进入关卡时发起。";
+    }
+
+    public static string StartSession(IDictionary<string, object> state, string mode, string? formation = null)
+    {
+        var resolvedMode = string.IsNullOrWhiteSpace(mode) ? "mirror" : mode.Trim();
+        var resolvedFormation = string.IsNullOrWhiteSpace(formation) ? "1v1" : formation.Trim();
+        return StartBattle(state, new[] { resolvedMode, resolvedFormation });
     }
 
     public static void Initialize(IDictionary<string, object> state)
@@ -51,7 +58,7 @@ public static partial class BattleApi
         var subCommand = args[0].ToLowerInvariant();
         return subCommand switch
         {
-            "start" => StartBattle(state, args.Skip(1).ToArray()),
+            "start" => "❌ battle start 已禁用。请由业务模块调用 BattleApi.StartSession(...) 发起战斗。",
             "status" => DescribeSession(GetSession(state)),
             "active" => ExecuteActiveCommand(state, args.Skip(1).ToArray()),
             "pass" => PassTurn(state),
@@ -59,6 +66,37 @@ public static partial class BattleApi
             "help" => GetHelpText(),
             _ => "❌ 未知 battle 子命令。使用 'battle help' 查看帮助。",
         };
+    }
+
+    public static object? InvokeAssumedItemFunctionHook(
+        IDictionary<string, object> state,
+        string assumedItemId,
+        string methodName,
+        object?[] args,
+        string? assumedItemName = null,
+        string? assumedKind = null)
+    {
+        var session = GetSession(state);
+        if (session is null)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(assumedItemId) || string.IsNullOrWhiteSpace(methodName))
+        {
+            return null;
+        }
+
+        var actor = session.GetCurrentActor();
+        return InvokeAssumedFunctionWithHooks(
+            state,
+            session,
+            actor,
+            assumedItemId,
+            string.IsNullOrWhiteSpace(assumedItemName) ? assumedItemId : assumedItemName,
+            string.IsNullOrWhiteSpace(assumedKind) ? "Assumed" : assumedKind,
+            methodName,
+            args ?? Array.Empty<object?>());
     }
 
     public static object? ReadEffect(IDictionary<string, object> state, string scope, string ownerId, string sourceItemId, string key)

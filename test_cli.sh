@@ -26,7 +26,7 @@ echo ""
     sleep 1
     echo "levels"
     sleep 1
-    echo "loadlevel test"
+    echo "loadlevel first"
     sleep 1
     echo "inv"
     sleep 1

@@ -78,6 +78,7 @@ public sealed class ModuleSyncService
         Directory.CreateDirectory(userPackageDirectory);
 
         var localState = ScanLocalPackageState(userPackageDirectory);
+        var recentBattleRecords = LoadRecentLocalBattleRecords(userPackageDirectory, maxCount: 5);
         var payload = new AchievementVerifyRequestDto
         {
             UserId = userId,
@@ -86,6 +87,7 @@ public sealed class ModuleSyncService
             ExistingAchievementIds = localState.AchievementIds.ToList(),
             ExistingModuleIds = localState.ModuleIds.ToList(),
             ModuleVersions = new Dictionary<string, string>(localState.ModuleVersions, StringComparer.Ordinal),
+            RecentBattleRecords = recentBattleRecords,
         };
 
         using var response = await httpClient.PostAsJsonAsync("/api/logic/achievement/verify", payload, cancellationToken);
@@ -173,6 +175,48 @@ public sealed class ModuleSyncService
                 && !string.Equals(moduleId, "module.achievement.core", StringComparison.Ordinal));
     }
 
+    private static List<ClientVerifiedBattleRecordDto> LoadRecentLocalBattleRecords(string userPackageDirectory, int maxCount)
+    {
+        var result = new List<ClientVerifiedBattleRecordDto>();
+        if (maxCount <= 0)
+        {
+            return result;
+        }
+
+        var rootDir = Path.GetFullPath(Path.Combine(userPackageDirectory, "..", "battle-records"));
+        if (!Directory.Exists(rootDir))
+        {
+            return result;
+        }
+
+        foreach (var filePath in Directory.GetFiles(rootDir, "*.signed.json", SearchOption.TopDirectoryOnly)
+                     .OrderByDescending(File.GetLastWriteTimeUtc)
+                     .Take(maxCount))
+        {
+            try
+            {
+                var json = File.ReadAllText(filePath);
+                var record = JsonSerializer.Deserialize<ClientVerifiedBattleRecordDto>(json);
+                if (record is null ||
+                    string.IsNullOrWhiteSpace(record.UserId) ||
+                    string.IsNullOrWhiteSpace(record.BattleId) ||
+                    string.IsNullOrWhiteSpace(record.BattleRecordJson) ||
+                    string.IsNullOrWhiteSpace(record.RecordHash) ||
+                    string.IsNullOrWhiteSpace(record.Signature))
+                {
+                    continue;
+                }
+
+                result.Add(record);
+            }
+            catch
+            {
+            }
+        }
+
+        return result;
+    }
+
     public sealed record ModuleSyncState(
         HashSet<string> AchievementIds,
         HashSet<string> ModuleIds,
@@ -207,6 +251,17 @@ public sealed class ModuleSyncService
         public List<string> ExistingAchievementIds { get; set; } = new();
         public List<string> ExistingModuleIds { get; set; } = new();
         public Dictionary<string, string> ModuleVersions { get; set; } = new();
+        public List<ClientVerifiedBattleRecordDto> RecentBattleRecords { get; set; } = new();
+    }
+
+    private sealed class ClientVerifiedBattleRecordDto
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string BattleId { get; set; } = string.Empty;
+        public string BattleRecordJson { get; set; } = string.Empty;
+        public string RecordHash { get; set; } = string.Empty;
+        public DateTime VerifiedAtUtc { get; set; }
+        public string Signature { get; set; } = string.Empty;
     }
 
     public sealed class PackageManifestItemDto

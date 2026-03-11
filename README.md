@@ -63,6 +63,9 @@
 - `EonVientiane.LevelModule`
 - `EonVientiane.EffectModule`
 - `EonVientiane.BattleModule`
+- `EonVientiane.NetworkBattleModule`
+- `EonVientiane.Item.Accessory.Self`
+- `EonVientiane.Item.Dice.D6`
 - `EonVientiane.AchievementModule`
 - `EonVientiane.AchievementConnectionModule`
 - `EonVientiane.AchievementStatusModule`
@@ -79,6 +82,7 @@
 | [EonVientiane.LevelModule](EonVientiane.LevelModule) | 关卡命令 |
 | [EonVientiane.EffectModule](EonVientiane.EffectModule) | 战斗效果存储区读写与作用域键管理 |
 | [EonVientiane.BattleModule](EonVientiane.BattleModule) | 战斗生命周期、回合与伤害结算宿主 |
+| [EonVientiane.NetworkBattleModule](EonVientiane.NetworkBattleModule) | 局域网房间、进房准备、分组与 PVP 启动编排 |
 | [EonVientiane.AchievementModule](EonVientiane.AchievementModule) | 成就相关逻辑 |
 
 ## 战斗系统的目标规则
@@ -139,13 +143,23 @@
 
 1. 随机决定先后手。
 2. 加载所有饰品的战前效果。
-3. 当前行动方在自己的回合可使用 `AD`。
+3. 当前行动方进入主动回合，需选择一个 `AD` 骰子并指定目标。
 4. 所有可指定对象的行动均可指定任意对象，包括自身。
 5. 若某单位被施加 `ATKP`，则该单位进入被动回合。
-6. 该单位可使用 `PD` 对 `ATKP` 进行处理。
-7. `PD` 处理后得到伤害值。
-8. 所有效果均可在结算过程中读写效果存储区。
-9. 结算伤害并检查失败。
+6. 被攻击单位在被动回合可选择一个 `PD` 骰子处理 `ATKP`，或使用 `battle pass` 直接承受 `ATKP` 伤害。
+7. 被动处理后得到伤害值。
+8. 被动结算后，该单位直接进入主动回合。
+9. 所有效果均可在结算过程中读写效果存储区。
+10. 结算伤害并检查失败。
+
+战斗内命令约定（当前实现）：
+
+- `battle active` 为统一行动指令：
+	- 主动回合：`battle active <目标> <主动骰子名>`
+	- 被动回合：`battle active <被动骰子名>`
+- `battle pass`：
+	- 主动回合：跳过当前回合。
+	- 被动回合：不使用 `PD`，直接将 `ATKP` 转化为伤害。
 
 ### 6. 失败条件
 
@@ -153,6 +167,34 @@
 
 - 在受到伤害前不存在 `HP`
 - 在受到伤害后 `HP <= 0`
+
+### 8. 局域网房间流程（新增）
+
+网络对战通过独立模块 `EonVientiane.NetworkBattleModule` 提供房间流程，命令入口为 `lan`：
+
+- `lan create [房间名] [阵型]`：创建局域网房间
+- `lan join <房间ID>`：进入房间
+- `lan ready [on|off]`：准备 / 取消准备
+- `lan group <组号>`：设置分组（如 `A/B`）
+- `lan start`：由房主在“全员已准备 + 至少两个分组”时启动 `pvp`
+
+启动时模块会将房间分组映射为阵型（如 `2v2`），并通过 `BattleApi.StartSession(state, "pvp", formation)` 进入战斗。
+
+### 7. 对战接口统一原则（已落地）
+
+- 战斗由业务模块发起，不再由用户直接使用 `battle start`。
+- 统一启动接口为 `BattleApi.StartSession(IDictionary<string, object> state, string mode, string? formation)`。
+- 例如 `LevelModule` 在 `loadlevel` 时调用 `BattleApi.StartSession(..., "level", formation)` 进入战斗。
+- 关卡敌人被视作“特殊账号”，具备独立公开战斗变量（如 `HP`、`ATKP`）与自动行动条件。
+- 本地关卡与网络对战的核心差异仅在敌方决策来源：
+	- `level`：敌方依据关卡条件自动判定行动
+	- `pvp`：敌方由远端玩家自主选择行动
+
+在可见性边界上，客户端对敌方遵循最小可见原则：
+
+- 仅可读取敌方公开战斗变量（尤其 `HP`）与效果区结果
+- 不可读取敌方道具表
+- 仅可写入敌方效果区或发送 `ATKP`
 
 ## 架构约束
 
@@ -188,6 +230,32 @@
 - 约定的输入输出数据结构
 
 宿主只检查这些约定是否存在，不关心内部实现。
+
+### 3.1 禁止使用高度耦合方法（新增注意事项）
+
+以下实现被视为高度耦合，明确禁止：
+
+- 在战斗宿主中内置“策略决策”逻辑（例如默认选骰、按固定规则自动补攻击值、按模式硬编码行为差异）
+- 宿主通过读取某个关卡或道具的私有业务字段来决定行动
+- 为某个具体关卡或道具增加专用分支判断（特判）
+
+应采用的方式：
+
+- 宿主只负责流程推进、接口调用、结果合并与结算
+- 所有行动决策（选目标、选骰、是否跳过、攻击值策略）必须由行动主体自身 Runtime 提供
+- 宿主与模块间仅通过约定输入输出交互，不共享业务内部状态模型
+
+### 4. 装备数据传递约束（新增）
+
+装备数据在模块间传递时，必须使用“可序列化字典/JSON 对象”约定（如 `Dictionary<string, object>` 或 JSON 对象数组），不得定义或依赖跨模块共享的固定装备类型（DTO/record/class）。
+
+约束目标：
+
+- 防止 `InventoryModule`、`EquipmentModule`、`BattleModule` 之间形成编译期类型耦合
+- 允许各模块独立演进字段（新增/缺省字段不破坏加载）
+- 保持“宿主仅检查约定字段，不依赖内部实现”的原则
+
+当前约定字段（最小集合）建议包含：`Id`、`Name`、`Slot`；可选字段可按需扩展（如 `Kind`、`AccessorySlotCost`）。
 
 ## 推荐的后续模块划分
 
@@ -270,6 +338,64 @@
 - `ReadEffect(...)`
 - `WriteEffect(...)`
 
+### 虚拟玩家行动约定（新增）
+
+战斗宿主不负责行动决策；非本地行动方应由外部 Runtime 作为“虚拟玩家”给出行动指令。
+
+推荐导出：
+
+- `DecideBattleAction(Dictionary<string, object> context)`
+- 兼容别名：`GetBattleAction(...)`、`DecideAction(...)`
+
+返回值为 `Dictionary<string, object>`，建议字段：
+
+- `action`: `active` 或 `pass`
+- `target`: 目标 `unitId` 或显示名（可选）
+- `requestedDiceName` / `dice` / `diceName` / `itemId`: 回合要使用的骰子标识（主动/被动回合均可使用）
+- `attack` 或 `ATKP`: 直接给定本回合攻击值（可选）
+
+建议同时读取 `context["phase"]`（`active` / `passive`）来决定选择何种骰子。
+
+若未提供有效行动指令，宿主将视为“自动方本回合跳过”。
+
+### 通用 Hook 约定（新增）
+
+为避免“某个道具专属特判”，战斗宿主支持道具通过反射注册通用 Hook：
+
+- `OnBattleHook(Dictionary<string, object> context)`
+- 或 `OnHook(Dictionary<string, object> context)`（兼容别名）
+
+当前宿主已接入“函数调用级”钩子事件：
+
+- `hook.eventName = "function.invoke"`
+- `hook.stage = "before" | "after"`
+- `hook.elapsedMs = 当前行动方本回合已过去毫秒`
+- `targetCall.methodName = 被调用函数名`
+- `targetCall.itemId/name/kind = 目标道具信息（若存在）`
+- `arguments = 调用参数数组`
+
+其中命令闸门也统一映射为“合成函数调用”：
+
+- `BattleCommand.active`
+- `BattleCommand.pass`
+
+道具 Hook 返回值建议为 `Dictionary<string, object>`，可包含：
+
+- `cancel: bool`：取消本次命令
+- `forcePass: bool`：强制将当前命令转为“跳过回合”
+- `skipOriginal: bool`（或 `skip`）：跳过原函数执行
+- `result` / `overrideResult`：覆写函数返回值
+- `message: string`：写入战斗日志
+- `effects: []`：按效果模块约定写入效果存储区
+
+这意味着“对方每步超时自动跳过”应由道具在 Hook 中根据 `elapsedMs` 自主决策，而不是由宿主内置固定道具逻辑。
+
+此外，宿主还暴露了“假设目标道具函数 Hook”入口：
+
+- `BattleApi.InvokeAssumedItemFunctionHook(...)`
+
+可用于“假设对方存在某道具，并 Hook 到该道具某函数”的场景；上下文会在 `extra.assumedTarget` 中标记假设目标。
+
 ### 效果系统建议能力
 
 效果系统建议至少支持以下访问方式：
@@ -303,8 +429,20 @@
 - 基础模块化命令分发
 - 成就模块下发流程
 - 独立战斗模块（`EonVientiane.BattleModule`）
+- 独立网络对战模块（`EonVientiane.NetworkBattleModule`，支持房间/准备/分组）
 - 独立效果模块（`EonVientiane.EffectModule`）
+- 函数调用级通用 Hook（before/after，支持返回值覆写与跳过原函数）
+- 假设目标道具函数 Hook 入口（用于虚拟/假设目标拦截）
+- 统一战斗入口（`mirror / level / pvp`）
+- 关卡敌方账号化（关卡敌人以特殊账号形式参与同一战斗接口）
+- 战斗上下文中敌方道具表默认隐藏，仅暴露公开战斗变量与效果能力
 - 战斗结束后自动上报服务端签验并返回客户端本地存储
+- 成就签验请求可携带客户端近几场已签验战斗记录，服务端会进行哈希与签名复核后读取用于条件认证
+- 背包不再设容量上限（仅展示当前数量）
+- 装备规则已落地：最多装备 `8` 个骰子；饰品采用槽位制，默认最多 `12` 槽，且允许饰品使用负槽位（提供额外槽位）
+- 装备跨模块传递改为字典/JSON 对象约定，已移除固定装备类型依赖
+- 首个独立骰子道具模块 `EonVientiane.Item.Dice.D6`（`D6`）已实现并接入服务端签发链路
+- 首个独立饰品道具模块 `EonVientiane.Item.Accessory.Self`（`自我`，饰品槽消耗 `2`，战斗开始提供 `10HP`）已实现并接入服务端签发链路
 
 ### 战斗签验链路（当前实现）
 
@@ -313,6 +451,12 @@
 3. 服务端对记录进行基础结构校验，计算记录哈希并使用服务端私钥签名。
 4. 服务端返回签验结果（记录原文 + 哈希 + 签名），并在服务端 `logic-store/battle-records/<userId>/` 留存。
 5. 客户端将签验结果落盘到本地 `.../LogicPackages/battle-records/` 目录。
+
+### 成就签验读取战斗记录链路（当前实现）
+
+1. 客户端发起成就签验时，会从本地 `.../LogicPackages/battle-records/` 读取近几场战斗签验结果并随请求上送。
+2. 服务端仅接受与当前 `userId` 一致且可通过“记录哈希 + 服务端公钥验签”的战斗记录。
+3. 通过复核的记录可被服务端用于成就条件认证（当前能力已就绪，具体规则可在后续成就模块中扩展）。
 
 ### 尚未完成
 
