@@ -8,9 +8,6 @@ public sealed partial class PlayerRuntime : IRemoteGameRuntime
     private readonly Dictionary<string, object> sharedState = new(StringComparer.Ordinal);
 
     private string playerName = "玩家";
-    private int playerLevel = 1;
-    private int experience = 0;
-    private bool firstStatusAchievementTriggered;
 
     public string RuntimeId => "module.player.core";
     public string RuntimeVersion => "1.0.0";
@@ -18,18 +15,15 @@ public sealed partial class PlayerRuntime : IRemoteGameRuntime
     public void Initialize(string playerName)
     {
         this.playerName = playerName;
-        playerLevel = 1;
-        experience = 0;
-        firstStatusAchievementTriggered = false;
         sharedState["player.name"] = playerName;
         sharedState["level.current"] = string.Empty;
 
         InvokeOptional("EonVientiane.BattleModule", "EonVientiane.BattleModule.BattleApi", "Initialize", sharedState);
         InvokeOptional("EonVientiane.NetworkBattleModule", "EonVientiane.NetworkBattleModule.NetworkBattleApi", "Initialize", sharedState);
         InvokeOptional("EonVientiane.InventoryModule", "EonVientiane.InventoryModule.InventoryApi", "Initialize", sharedState);
+        InvokeOptional("EonVientiane.RankModule", "EonVientiane.RankModule.RankApi", "Initialize", sharedState);
         InvokeOptional("EonVientiane.AchievementModule", "EonVientiane.AchievementModule.AchievementRuntime", "Initialize", sharedState);
         InvokeOptional("EonVientiane.AchievementConnectionModule", "EonVientiane.AchievementConnectionModule.ConnectionAchievementRuntime", "Initialize", sharedState);
-        InvokeOptional("EonVientiane.AchievementStatusModule", "EonVientiane.AchievementStatusModule.StatusFirstAchievementRuntime", "Initialize", sharedState);
         RefreshUnlockedFromLocalPackages();
     }
 

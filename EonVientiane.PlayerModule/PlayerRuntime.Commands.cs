@@ -6,14 +6,21 @@ public sealed partial class PlayerRuntime
 {
     private string GetStatus()
     {
-        var triggerNotice = TriggerFirstStatusAchievementIfNeeded();
-
         var currentLevelJson = GetCurrentLevelJson();
         var sb = new StringBuilder();
         sb.AppendLine("=== 玩家信息 ===");
         sb.AppendLine($"名字: {playerName}");
-        sb.AppendLine($"等级: {playerLevel}");
-        sb.AppendLine($"经验: {experience}");
+
+        var rankAddon = InvokeOptional(
+            "EonVientiane.RankModule",
+            "EonVientiane.RankModule.RankApi",
+            "GetStatusAddon",
+            sharedState) as string;
+        if (!string.IsNullOrWhiteSpace(rankAddon))
+        {
+            sb.AppendLine(rankAddon.TrimEnd());
+        }
+
         sb.AppendLine($"状态: {(string.IsNullOrWhiteSpace(currentLevelJson) ? "Idle" : "InLevel")}");
         if (!string.IsNullOrWhiteSpace(currentLevelJson))
         {
@@ -50,59 +57,7 @@ public sealed partial class PlayerRuntime
             sb.AppendLine(achievementAddon);
         }
 
-        if (!string.IsNullOrWhiteSpace(triggerNotice))
-        {
-            sb.AppendLine(triggerNotice);
-        }
-
         return sb.ToString();
-    }
-
-    private string TriggerFirstStatusAchievementIfNeeded()
-    {
-        if (firstStatusAchievementTriggered)
-        {
-            return string.Empty;
-        }
-
-        firstStatusAchievementTriggered = true;
-
-        var shouldRequest = InvokeOptional(
-            "EonVientiane.AchievementStatusModule",
-            "EonVientiane.AchievementStatusModule.StatusFirstAchievementRuntime",
-            "ShouldRequestForFirstStatus",
-            sharedState) as bool?;
-
-        if (shouldRequest == false)
-        {
-            return string.Empty;
-        }
-
-        try
-        {
-            var requestResult = RequestAchievementVerification("player.status.first");
-            if (!requestResult.Success)
-            {
-                return string.IsNullOrWhiteSpace(requestResult.Message)
-                    ? string.Empty
-                    : $"⚠ 成就验证失败: {requestResult.Message}";
-            }
-
-            MergeUnlockedAchievements(requestResult.GrantedAchievementIds);
-            RefreshUnlockedFromLocalPackages();
-
-            if (requestResult.DownloadedCount == 0)
-            {
-                return "✓ 成就验证完成（无新增模块）";
-            }
-
-            var moduleList = string.Join(", ", requestResult.SyncedModuleIds.Distinct(StringComparer.Ordinal));
-            return $"✓ 首次 status 成就验证完成，新增模块: {moduleList}";
-        }
-        catch (Exception ex)
-        {
-            return $"⚠ 成就验证失败: {ex.Message}";
-        }
     }
 
     private bool TryExecuteModuleCommand(string command, string[] args, out string output)
@@ -113,6 +68,7 @@ public sealed partial class PlayerRuntime
             (Assembly: "EonVientiane.NetworkBattleModule", Type: "EonVientiane.NetworkBattleModule.NetworkBattleApi"),
             (Assembly: "EonVientiane.LevelModule", Type: "EonVientiane.LevelModule.LevelApi"),
             (Assembly: "EonVientiane.InventoryModule", Type: "EonVientiane.InventoryModule.InventoryApi"),
+            (Assembly: "EonVientiane.RankModule", Type: "EonVientiane.RankModule.RankApi"),
             (Assembly: "EonVientiane.EquipmentModule", Type: "EonVientiane.EquipmentModule.EquipmentApi"),
             (Assembly: "EonVientiane.AchievementModule", Type: "EonVientiane.AchievementModule.AchievementRuntime"),
         };
@@ -163,7 +119,19 @@ public sealed partial class PlayerRuntime
         {
             var response = RequestBattleVerification(recordJson);
             SaveVerifiedBattleRecordToLocal(response);
-            return $"✓ 战斗过程签验完成，记录已保存: {response.BattleId}";
+            var rankNotice = InvokeOptional(
+                "EonVientiane.RankModule",
+                "EonVientiane.RankModule.RankApi",
+                "ApplyBattleResult",
+                sharedState,
+                recordJson) as string;
+
+            if (string.IsNullOrWhiteSpace(rankNotice))
+            {
+                return $"✓ 战斗过程签验完成，记录已保存: {response.BattleId}";
+            }
+
+            return $"✓ 战斗过程签验完成，记录已保存: {response.BattleId}{Environment.NewLine}{rankNotice}";
         }
         catch (Exception ex)
         {
@@ -180,6 +148,7 @@ public sealed partial class PlayerRuntime
             (Assembly: "EonVientiane.NetworkBattleModule", Type: "EonVientiane.NetworkBattleModule.NetworkBattleApi"),
             (Assembly: "EonVientiane.LevelModule", Type: "EonVientiane.LevelModule.LevelApi"),
             (Assembly: "EonVientiane.InventoryModule", Type: "EonVientiane.InventoryModule.InventoryApi"),
+            (Assembly: "EonVientiane.RankModule", Type: "EonVientiane.RankModule.RankApi"),
             (Assembly: "EonVientiane.EquipmentModule", Type: "EonVientiane.EquipmentModule.EquipmentApi"),
             (Assembly: "EonVientiane.AchievementModule", Type: "EonVientiane.AchievementModule.AchievementRuntime"),
         };

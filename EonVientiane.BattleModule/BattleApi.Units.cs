@@ -115,13 +115,13 @@ public static partial class BattleApi
             return remoteOpponent;
         }
 
-        var fallbackName = mode.Equals("pvp", StringComparison.OrdinalIgnoreCase) ? "对手" : "镜像敌人";
+        var fallbackName = mode.Equals("pvp", StringComparison.OrdinalIgnoreCase) ? "对手" : "关卡敌人";
         return new OpponentAccountSpec(
-            UnitId: mode.Equals("pvp", StringComparison.OrdinalIgnoreCase) ? "remote" : "mirror",
+            UnitId: mode.Equals("pvp", StringComparison.OrdinalIgnoreCase) ? "remote" : "level.enemy",
             DisplayName: fallbackName,
             Hp: 12,
             Atkp: 2,
-            IsLocalControlled: !mode.Equals("pvp", StringComparison.OrdinalIgnoreCase),
+            IsLocalControlled: false,
             IsLoadoutVisible: false,
             PreferredItemNames: new List<string>(),
             SourceMode: mode,

@@ -1,11 +1,11 @@
 using System.Text.Json;
 using System.Security.Cryptography;
 using System.Text;
+using EonVientiane.Server;
 using EonVientiane.Core.Models;
 using EonVientiane.Core.Services;
 using EonVientiane.AchievementModule;
 using EonVientiane.AchievementConnectionModule;
-using EonVientiane.AchievementStatusModule;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,19 +20,7 @@ var logicStoreRoot = Environment.GetEnvironmentVariable("EV_LOGIC_STORE")
     ?? Path.Combine(app.Environment.ContentRootPath, "logic-store");
 var publicKeyPath = Path.Combine(logicStoreRoot, "keys", "server_public.pem");
 var privateKeyPath = Path.Combine(logicStoreRoot, "keys", "server_private.pem");
-var equipmentModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.EquipmentModule", "EonVientiane.EquipmentModule.dll");
-var inventoryModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.InventoryModule", "EonVientiane.InventoryModule.dll");
-var levelModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.LevelModule", "EonVientiane.LevelModule.dll");
-var effectModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.EffectModule", "EonVientiane.EffectModule.dll");
-var battleModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.BattleModule", "EonVientiane.BattleModule.dll");
-var networkBattleModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.NetworkBattleModule", "EonVientiane.NetworkBattleModule.dll");
-var firstLevelModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVinetiane.Levels/EonVientiane.Level.First", "EonVientiane.Level.First.dll");
-var selfAccessoryModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.Items/EonVientiane.Item.Accessory.Self", "EonVientiane.Item.Accessory.Self.dll");
-var d6ModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.Items/EonVientiane.Item.Dice.D6", "EonVientiane.Item.Dice.D6.dll");
-var playerModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.PlayerModule", "EonVientiane.PlayerModule.dll");
-var achievementModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.AchievementModule", "EonVientiane.AchievementModule.dll");
-var achievementConnectionModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.AchievementConnectionModule", "EonVientiane.AchievementConnectionModule.dll");
-var achievementStatusModuleDllPath = ResolveModuleDllPath(app.Environment.ContentRootPath, "EonVientiane.AchievementStatusModule", "EonVientiane.AchievementStatusModule.dll");
+var serverModules = ServerModuleRegistry.Load(app.Environment.ContentRootPath);
 var encryptionService = new EncryptionService();
 
 Directory.CreateDirectory(logicStoreRoot);
@@ -77,33 +65,10 @@ app.MapPost("/api/logic/connect", (ConnectBootstrapRequest request) =>
 
     var issuedFiles = new List<string>();
     var manifests = new List<PackageManifestItem>();
-    const string playerVersion = "1.0.0";
-    const string equipmentVersion = "1.0.0";
-    const string inventoryVersion = "1.0.0";
-    const string levelVersion = "1.0.0";
-    const string effectVersion = "1.0.0";
-    const string battleVersion = "1.0.0";
-    const string networkBattleVersion = "1.0.0";
-    const string firstLevelVersion = "1.0.0";
-    const string selfAccessoryVersion = "1.0.0";
-    const string d6Version = "1.0.0";
-    const string achievementSystemVersion = "1.0.0";
-    const string firstAchievementVersion = "1.0.0";
-    const string statusAchievementVersion = "1.0.0";
-
-    IssueDllModuleIfNeeded("module.player.core", "module.player.core.json", playerModuleDllPath, playerVersion);
-    IssueDllModuleIfNeeded("module.equipment.core", "module.equipment.core.json", equipmentModuleDllPath, equipmentVersion);
-    IssueDllModuleIfNeeded("module.inventory.core", "module.inventory.core.json", inventoryModuleDllPath, inventoryVersion);
-    IssueDllModuleIfNeeded("module.level.core", "module.level.core.json", levelModuleDllPath, levelVersion);
-    IssueDllModuleIfNeeded("module.effect.core", "module.effect.core.json", effectModuleDllPath, effectVersion);
-    IssueDllModuleIfNeeded("module.battle.core", "module.battle.core.json", battleModuleDllPath, battleVersion);
-    IssueDllModuleIfNeeded("module.network-battle.core", "module.network-battle.core.json", networkBattleModuleDllPath, networkBattleVersion);
-    IssueDllModuleIfNeeded("module.level.first", "module.level.first.json", firstLevelModuleDllPath, firstLevelVersion);
-    IssueDllModuleIfNeeded("module.item.accessory.self", "module.item.accessory.self.json", selfAccessoryModuleDllPath, selfAccessoryVersion);
-    IssueDllModuleIfNeeded("module.item.dice.d6", "module.item.dice.d6.json", d6ModuleDllPath, d6Version);
-    IssueDllModuleIfNeeded("module.achievement.core", "module.achievement.core.json", achievementModuleDllPath, achievementSystemVersion);
-    IssueDllModuleIfNeeded("module.achievement.connection", "module.achievement.connection.json", achievementConnectionModuleDllPath, firstAchievementVersion);
-    IssueDllModuleIfNeeded("module.achievement.status", "module.achievement.status.json", achievementStatusModuleDllPath, statusAchievementVersion);
+    foreach (var module in serverModules.Values.Where(x => x.IssueOnConnect))
+    {
+        IssueDllModuleIfNeeded(module);
+    }
 
     return Results.Ok(new
     {
@@ -111,26 +76,26 @@ app.MapPost("/api/logic/connect", (ConnectBootstrapRequest request) =>
         manifests,
     });
 
-    void IssueDllModuleIfNeeded(string moduleId, string fileName, string dllPath, string serverVersion)
+    void IssueDllModuleIfNeeded(ServerModuleDefinition module)
     {
-        if (!ShouldIssueModule(moduleId, serverVersion))
+        if (!ShouldIssueModule(module.ModuleId, module.Version))
         {
             return;
         }
 
-        var dllBytes = File.ReadAllBytes(dllPath);
+        var dllBytes = File.ReadAllBytes(module.DllPath);
         var envelope = BuildSignedEncryptedEnvelope(
             encryptionService,
             serverPrivateKeyPem,
             request.UserPublicKeyPem,
             request.UserId,
-            moduleId: moduleId,
-            version: serverVersion,
+            moduleId: module.ModuleId,
+            version: module.Version,
             kind: LogicModuleKind.Dll,
             payloadBytes: dllBytes);
 
-        AddPackage(fileName, envelope);
-        issuedFiles.Add(fileName);
+        AddPackage(module.FileName, envelope);
+        issuedFiles.Add(module.FileName);
     }
 
     void AddPackage(string fileName, LogicPackageEnvelope envelope)
@@ -208,16 +173,6 @@ app.MapPost("/api/logic/achievement/verify", (AchievementVerifyRequest request) 
         }
     }
 
-    if (StatusFirstAchievementRuntime.VerifyOnServer(request.Trigger, unlockedAchievementIds))
-    {
-        unlockedAchievementIds.Add(StatusFirstAchievementRuntime.AchievementId);
-        grantedAchievementIds.Add(StatusFirstAchievementRuntime.AchievementId);
-        foreach (var moduleId in StatusFirstAchievementRuntime.GetModulesToIssueOnUnlock())
-        {
-            issueModuleIds.Add(moduleId);
-        }
-    }
-
     userAchievementState.UnlockedAchievementIds = unlockedAchievementIds.OrderBy(x => x, StringComparer.Ordinal).ToList();
     AchievementStateStore.Save(logicStoreRoot, request.UserId, userAchievementState);
 
@@ -226,31 +181,31 @@ app.MapPost("/api/logic/achievement/verify", (AchievementVerifyRequest request) 
 
     foreach (var moduleId in issueModuleIds)
     {
-        if (!TryGetIssueModuleInfo(moduleId, out var fileName, out var dllPath, out var version))
+        if (!serverModules.TryGetValue(moduleId, out var module))
         {
             continue;
         }
 
-        if (!ShouldIssueModule(moduleId, version))
+        if (!ShouldIssueModule(module.ModuleId, module.Version))
         {
             continue;
         }
 
-        var dllBytes = File.ReadAllBytes(dllPath);
+        var dllBytes = File.ReadAllBytes(module.DllPath);
         var envelope = BuildSignedEncryptedEnvelope(
             encryptionService,
             serverPrivateKeyPem,
             request.UserPublicKeyPem,
             request.UserId,
-            moduleId: moduleId,
-            version: version,
+            moduleId: module.ModuleId,
+            version: module.Version,
             kind: LogicModuleKind.Dll,
             payloadBytes: dllBytes);
 
         var packageJson = JsonSerializer.Serialize(envelope);
         manifests.Add(new PackageManifestItem
         {
-            FileName = fileName,
+            FileName = module.FileName,
             ModuleId = envelope.ModuleId,
             Version = envelope.Version,
             Kind = envelope.Kind.ToString(),
@@ -260,7 +215,7 @@ app.MapPost("/api/logic/achievement/verify", (AchievementVerifyRequest request) 
             PackageBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(packageJson)),
         });
 
-        issuedFiles.Add(fileName);
+        issuedFiles.Add(module.FileName);
     }
 
     return Results.Ok(new
@@ -284,58 +239,6 @@ app.MapPost("/api/logic/achievement/verify", (AchievementVerifyRequest request) 
         }
 
         return CompareModuleVersion(localVersion, serverVersion) < 0;
-    }
-
-    bool TryGetIssueModuleInfo(string moduleId, out string fileName, out string dllPath, out string version)
-    {
-        switch (moduleId)
-        {
-            case "module.player.core":
-                fileName = "module.player.core.json";
-                dllPath = playerModuleDllPath;
-                version = "1.0.0";
-                return true;
-            case "module.effect.core":
-                fileName = "module.effect.core.json";
-                dllPath = effectModuleDllPath;
-                version = "1.0.0";
-                return true;
-            case "module.battle.core":
-                fileName = "module.battle.core.json";
-                dllPath = battleModuleDllPath;
-                version = "1.0.0";
-                return true;
-            case "module.item.dice.d6":
-                fileName = "module.item.dice.d6.json";
-                dllPath = d6ModuleDllPath;
-                version = "1.0.0";
-                return true;
-            case "module.item.accessory.self":
-                fileName = "module.item.accessory.self.json";
-                dllPath = selfAccessoryModuleDllPath;
-                version = "1.0.0";
-                return true;
-            case "module.achievement.core":
-                fileName = "module.achievement.core.json";
-                dllPath = achievementModuleDllPath;
-                version = "1.0.0";
-                return true;
-            case "module.achievement.connection":
-                fileName = "module.achievement.connection.json";
-                dllPath = achievementConnectionModuleDllPath;
-                version = "1.0.0";
-                return true;
-            case "module.achievement.status":
-                fileName = "module.achievement.status.json";
-                dllPath = achievementStatusModuleDllPath;
-                version = "1.0.0";
-                return true;
-            default:
-                fileName = string.Empty;
-                dllPath = string.Empty;
-                version = string.Empty;
-                return false;
-        }
     }
 });
 
@@ -448,36 +351,6 @@ static LogicPackageEnvelope BuildSignedEncryptedEnvelope(
     var signaturePayload = BuildSignaturePayload(envelope);
     envelope.Signature = Convert.ToBase64String(encryptionService.SignData(signaturePayload, serverPrivateKeyPem));
     return envelope;
-}
-
-static string ResolveModuleDllPath(string contentRootPath, string projectName, string dllName)
-{
-    var envProjectName = projectName
-        .Replace('.', '_')
-        .Replace('/', '_')
-        .Replace('\\', '_');
-    var envKey = $"EV_{envProjectName.ToUpperInvariant()}_DLL";
-    var fromEnv = Environment.GetEnvironmentVariable(envKey);
-    if (!string.IsNullOrWhiteSpace(fromEnv) && File.Exists(fromEnv))
-    {
-        return fromEnv;
-    }
-
-    var candidates = new[]
-    {
-        Path.GetFullPath(Path.Combine(contentRootPath, "..", projectName, "bin", "Debug", "net10.0", dllName)),
-        Path.GetFullPath(Path.Combine(contentRootPath, "..", projectName, "bin", "Release", "net10.0", dllName)),
-    };
-
-    foreach (var candidate in candidates)
-    {
-        if (File.Exists(candidate))
-        {
-            return candidate;
-        }
-    }
-
-    throw new FileNotFoundException($"未找到模块DLL: {dllName}");
 }
 
 static byte[] BuildSignaturePayload(LogicPackageEnvelope envelope)

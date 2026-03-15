@@ -20,7 +20,7 @@ public static partial class BattleApi
 
     public static string StartSession(IDictionary<string, object> state, string mode, string? formation = null)
     {
-        var resolvedMode = string.IsNullOrWhiteSpace(mode) ? "mirror" : mode.Trim();
+        var resolvedMode = string.IsNullOrWhiteSpace(mode) ? "level" : mode.Trim();
         var resolvedFormation = string.IsNullOrWhiteSpace(formation) ? "1v1" : formation.Trim();
         return StartBattle(state, new[] { resolvedMode, resolvedFormation });
     }

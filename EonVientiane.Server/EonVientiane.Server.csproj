@@ -4,7 +4,6 @@
     <ProjectReference Include="..\EonVientiane.Core\EonVientiane.Core.csproj" />
     <ProjectReference Include="..\EonVientiane.AchievementModule\EonVientiane.AchievementModule.csproj" />
     <ProjectReference Include="..\EonVientiane.Achievements\EonVientiane.AchievementConnectionModule\EonVientiane.AchievementConnectionModule.csproj" />
-    <ProjectReference Include="..\EonVientiane.Achievements\EonVientiane.AchievementStatusModule\EonVientiane.AchievementStatusModule.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

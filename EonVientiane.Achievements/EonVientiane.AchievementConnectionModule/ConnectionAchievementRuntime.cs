@@ -43,6 +43,16 @@ public static class ConnectionAchievementRuntime
         return new[]
         {
             "module.player.core",
+            "module.equipment.core",
+            "module.inventory.core",
+            "module.level.core",
+            "module.effect.core",
+            "module.battle.core",
+            "module.network-battle.core",
+            "module.level.first",
+            "module.item.accessory.self",
+            "module.item.dice.d6",
+            "module.achievement.core",
             AchievementId,
         };
     }

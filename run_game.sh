@@ -59,8 +59,8 @@ for i in {1..30}; do
 done
 
 echo
-echo "[4/4] 启动 CLI 游戏（交互模式）..."
+echo "[4/4] 启动 GUI 游戏..."
 echo "提示: 首次进入请先创建账户或登录。"
 echo
 
-EV_SERVER_URL="${SERVER_URL}" dotnet run --project EonVientiane.CLI/EonVientiane.CLI.csproj -c Debug
+EV_SERVER_URL="${SERVER_URL}" dotnet run --project EonVientiane.GUI/EonVientiane.GUI.csproj -c Debug

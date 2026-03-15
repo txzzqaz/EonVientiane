@@ -50,40 +50,100 @@
 - [EonVientiane.EquipmentModule/EquipmentCatalog.cs](EonVientiane.EquipmentModule/EquipmentCatalog.cs#L1-L70)
 - [EonVientiane.LevelModule/LevelCatalog.cs](EonVientiane.LevelModule/LevelCatalog.cs)
 
+### 4. 当前服务端签发模块发现方式
+
+服务端签发侧不再维护“每个模块一个硬编码 DLL 路径/分支判断”。
+
+当前采用“模块自带清单 + 服务端自动扫描”的方式：
+
+- 每个可签发模块在自身项目根目录提供 `eon-module.json`
+- 服务端启动时自动扫描工作区中的模块清单
+- 服务端根据清单解析模块 `moduleId`、版本、文件名与 DLL 路径
+- 首次连接自动下发的模块由清单字段控制，而不是在服务端代码中写死
+
+相关实现：
+
+- [EonVientiane.Server/ServerModuleRegistry.cs](EonVientiane.Server/ServerModuleRegistry.cs)
+- [EonVientiane.Server/Program.cs](EonVientiane.Server/Program.cs)
+
+这意味着新增模块时，应优先补齐模块自身清单，而不是修改服务端行为代码。
+
 ## 当前项目结构
 
 ### 已存在项目
 
 - `EonVientiane.Core`
 - `EonVientiane.CLI`
+- `EonVientiane.GUI`
+- `EonVientiane.GUI.InventoryMenu`
 - `EonVientiane.Server`
 - `EonVientiane.PlayerModule`
 - `EonVientiane.InventoryModule`
 - `EonVientiane.EquipmentModule`
 - `EonVientiane.LevelModule`
+- `EonVientiane.RankModule`
 - `EonVientiane.EffectModule`
 - `EonVientiane.BattleModule`
 - `EonVientiane.NetworkBattleModule`
+- `EonVientiane.Rank.Stardust`
+- `EonVientiane.Rank.Moonlight`
+- `EonVientiane.Rank.Sunblaze`
+- `EonVientiane.Rank.Galaxy`
+- `EonVientiane.Rank.Genesis`
+- `EonVientiane.Rank.AllCreation`
+- `EonVientiane.Rank.Transcend`
+- `EonVientiane.Rank.Infinite`
+- `EonVientiane.Rank.Eternal`
 - `EonVientiane.Item.Accessory.Self`
 - `EonVientiane.Item.Dice.D6`
 - `EonVientiane.AchievementModule`
 - `EonVientiane.AchievementConnectionModule`
-- `EonVientiane.AchievementStatusModule`
 
 ### 当前职责概览
 
 | 项目 | 职责 |
 |------|------|
 | [EonVientiane.Core](EonVientiane.Core) | 逻辑包模型、远程运行时契约、账户与加密服务 |
+| [EonVientiane.GUI](EonVientiane.GUI) | 图形界面外壳；所有操作统一转发至 CLI 输入链路；提供模块化菜单容器 |
+| [EonVientiane.GUI.InventoryMenu](EonVientiane.GUI.InventoryMenu) | 背包模块的 GUI 菜单扩展；实现 `IGuiMenuModule`，构建后 DLL 自动复制到 `gui-modules/` |
 | [EonVientiane.Server](EonVientiane.Server) | 模块签发、签名、加密、同步接口 |
 | [EonVientiane.PlayerModule](EonVientiane.PlayerModule) | 当前客户端主运行时、共享状态、模块分发 |
 | [EonVientiane.InventoryModule](EonVientiane.InventoryModule) | 背包状态与展示 |
 | [EonVientiane.EquipmentModule](EonVientiane.EquipmentModule) | 装备命令转发 |
 | [EonVientiane.LevelModule](EonVientiane.LevelModule) | 关卡命令 |
+| [EonVientiane.RankModule](EonVientiane.RankModule) | 段位总线：段位发现、段位分、升段、切换 |
 | [EonVientiane.EffectModule](EonVientiane.EffectModule) | 战斗效果存储区读写与作用域键管理 |
 | [EonVientiane.BattleModule](EonVientiane.BattleModule) | 战斗生命周期、回合与伤害结算宿主 |
 | [EonVientiane.NetworkBattleModule](EonVientiane.NetworkBattleModule) | 局域网房间、进房准备、分组与 PVP 启动编排 |
 | [EonVientiane.AchievementModule](EonVientiane.AchievementModule) | 成就相关逻辑 |
+
+## 段位系统（新增）
+
+玩家成长机制已由“等级/经验”调整为“段位/段位分”，采用完全模块化实现：
+
+- 段位总线模块：`EonVientiane.RankModule`
+- 段位定义模块（平级独立项目）：
+	- `Stardust`（星尘）
+	- `Moonlight`（月辉）
+	- `Sunblaze`（日曜）
+	- `Galaxy`（天河）
+	- `Genesis`（创生）
+	- `AllCreation`（万物）
+	- `Transcend`（超脱）
+	- `Infinite`（无限）
+	- `Eternal`（永恒）
+
+机制约定：
+
+- 每个段位有独立段位分（按段位 ID 存储，不互相覆盖）
+- 已拥有段位可随时切换，不影响其他段位已累积的段位分
+- 段位模块之间仅通过反射约定耦合（`GetRankMetadata/GetRank/GetRanks`）
+
+当前命令：
+
+- `rank` / `rank status`：查看当前段位
+- `ranks` / `rank list`：查看全部段位与拥有状态
+- `rank switch <段位ID>`：切换到已拥有段位
 
 ## 战斗系统的目标规则
 
@@ -245,6 +305,29 @@
 - 所有行动决策（选目标、选骰、是否跳过、攻击值策略）必须由行动主体自身 Runtime 提供
 - 宿主与模块间仅通过约定输入输出交互，不共享业务内部状态模型
 
+### 3.2 禁止通过服务端硬编码接入新模块（新增注意事项）
+
+以下做法同样属于高耦合，明确禁止：
+
+- 新增一个模块时，要求去修改服务端中的固定 `DllPath` 变量列表
+- 新增一个模块时，要求去修改服务端中的 `switch` / `if` 分发分支
+- 将某个具体模块的签发规则直接写死在服务端主流程中
+
+应采用的方式：
+
+- 模块在自身项目目录声明 `eon-module.json`
+- 服务端通过扫描清单建立模块注册表
+- 是否“登录即签发”、模块版本、文件名等信息，优先由模块清单声明
+- 服务端只负责扫描、校验、签名、加密与分发，不负责维护具体模块名单
+
+当前约定下，新增一个可签发模块的最小动作应为：
+
+1. 新建独立项目
+2. 构建出自身 DLL
+3. 在项目根目录补充 `eon-module.json`
+
+而不是去修改服务端主程序。
+
 ### 4. 装备数据传递约束（新增）
 
 装备数据在模块间传递时，必须使用“可序列化字典/JSON 对象”约定（如 `Dictionary<string, object>` 或 JSON 对象数组），不得定义或依赖跨模块共享的固定装备类型（DTO/record/class）。
@@ -298,15 +381,20 @@
 
 #### 服务端物品注册/签发能力
 
-当前服务端采用硬编码签发模块，见 [EonVientiane.Server/Program.cs](EonVientiane.Server/Program.cs#L16-L91)。
+当前服务端已实现“模块清单注册表 + 自动扫描签发”。
 
-后续需要增加以下能力之一：
+即：
 
-- 物品注册表
-- 配置式物品清单
-- 自动扫描并登记物品 DLL
+- 每个模块在自身目录提供 `eon-module.json`
+- 服务端启动时自动扫描清单并建立注册表
+- 发放逻辑按 `moduleId` 从注册表查询，不再要求为新模块修改服务端代码
 
-否则无法支持“一个物品一个独立项目”的发放模型。
+相关实现见：
+
+- [EonVientiane.Server/ServerModuleRegistry.cs](EonVientiane.Server/ServerModuleRegistry.cs)
+- [EonVientiane.Server/Program.cs](EonVientiane.Server/Program.cs)
+
+因此当前架构已经满足“一个物品一个独立项目”的发放模型，但前提是模块必须遵守清单约定。
 
 ### 独立道具项目
 
@@ -426,6 +514,7 @@
 
 - 账户与加密逻辑包体系
 - 服务端签发与客户端热加载
+- 服务端模块签发注册表：已改为扫描各模块自带 `eon-module.json`，移除按模块逐个硬编码 DLL 路径/分支的方式
 - 基础模块化命令分发
 - 成就模块下发流程
 - 独立战斗模块（`EonVientiane.BattleModule`）
@@ -433,7 +522,7 @@
 - 独立效果模块（`EonVientiane.EffectModule`）
 - 函数调用级通用 Hook（before/after，支持返回值覆写与跳过原函数）
 - 假设目标道具函数 Hook 入口（用于虚拟/假设目标拦截）
-- 统一战斗入口（`mirror / level / pvp`）
+- 统一战斗入口（`level / pvp`）
 - 关卡敌方账号化（关卡敌人以特殊账号形式参与同一战斗接口）
 - 战斗上下文中敌方道具表默认隐藏，仅暴露公开战斗变量与效果能力
 - 战斗结束后自动上报服务端签验并返回客户端本地存储
@@ -443,7 +532,48 @@
 - 装备跨模块传递改为字典/JSON 对象约定，已移除固定装备类型依赖
 - 首个独立骰子道具模块 `EonVientiane.Item.Dice.D6`（`D6`）已实现并接入服务端签发链路
 - 首个独立饰品道具模块 `EonVientiane.Item.Accessory.Self`（`自我`，饰品槽消耗 `2`，战斗开始提供 `10HP`）已实现并接入服务端签发链路
+- 独立 GUI 模块 `EonVientiane.GUI` 已接入：
+	- 左上固定栏位按钮承载 Core/CLI 指令（如 `help`/`account`/`sync`）
+	- 右侧为模块菜单区，每个模块可提供独立小菜单与按钮布局
+	- GUI 按钮与输入框均只做“向 CLI 发送文本命令”，不重复实现业务逻辑- 背包模块 GUI 菜单兼容层 `EonVientiane.GUI.InventoryMenu` 已实现：构建后自动将 DLL 复制到 `gui-modules/`，GUI 启动时自动识别并显示背包菜单卡片
+## GUI 模块说明（新增）
 
+`EonVientiane.GUI` 的原则是“UI 外壳 + CLI 指令桥接”：
+
+- GUI 中所有按钮/输入行为都会转为 CLI 文本输入。
+- 功能来源仍是 CLI + 远程运行时模块，不在 GUI 中复制命令业务。
+- GUI 负责承载未来插图、动画、动效等展示层能力。
+- GUI 面向玩家使用，默认提供登录/注册表单与按钮化操作，不暴露可直接输入原始 CLI 文本的主操作框。
+
+### 布局约定
+
+- 左上固定命令栏：放置 Core/CLI 常用命令按钮。
+- 右侧模块菜单栏：每个模块一个小菜单卡片，按钮内容与排列由模块定义。
+- 未登录时右侧显示账户登录/创建入口；登录成功后切换为模块菜单区。
+
+### 模块菜单扩展约定
+
+GUI 提供以下约定接口（位于 `EonVientiane.GUI/GuiMenus/GuiMenuContracts.cs`）：
+
+- `IGuiMenuModule`
+- `GuiMenuDefinition`
+- `GuiMenuButton`
+- `GuiMenuLayout`（如纵向、双列）
+
+外部 GUI 菜单模块可编译为 DLL 并放入工作区根目录 `gui-modules/`，启动 GUI 时会自动扫描并加载，实现“各模块自行提供菜单内容与布局”。
+已实现的 GUI 菜单模块：
+
+| 菜单模块 | 对应功能模块 | 菜单内容 |
+|---------|------------|---------|
+| [EonVientiane.GUI.InventoryMenu](EonVientiane.GUI.InventoryMenu) | `EonVientiane.InventoryModule` | 查看背包（`inv`）|
+
+如需为某个功能模块增加 GUI 菜单，按以下约定创建独立平级项目：
+
+1. 新建独立项目，命名约定为 `EonVientiane.GUI.<ModuleName>Menu`。
+2. 仅 `ProjectReference` `EonVientiane.GUI`（获取契约接口与 Avalonia 依赖），不引用业务模块内部实现。
+3. 实现 `IGuiMenuModule`（必选）和 `IGuiContentModule`（可选，用于向 GUI 中间区域注入自定义面板）。
+4. 在 `.csproj` 中添加 post-build target，将本模块 DLL 复制到 `$(MSBuildThisFileDirectory)..\gui-modules\`。
+5. 将项目加入 `EonVientiane.slnx`。
 ### 战斗签验链路（当前实现）
 
 1. `BattleModule` 在战斗结束时生成战斗过程记录（含 battleId、回合、单位快照、日志）。
@@ -476,6 +606,12 @@ dotnet build EonVientiane.slnx
 
 ```bash
 dotnet run --project EonVientiane.CLI/EonVientiane.CLI.csproj
+```
+
+### 运行 GUI
+
+```bash
+dotnet run --project EonVientiane.GUI/EonVientiane.GUI.csproj
 ```
 
 ### 运行 Server
