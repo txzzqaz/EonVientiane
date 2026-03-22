@@ -1,6 +1,7 @@
 using EonVientiane.CLI;
 using EonVientiane.Core.Models;
 using EonVientiane.Core.Services;
+using EonVientiane.GUI.GuiMenus;
 using System.Reflection;
 
 namespace EonVientiane.GUI.Services;
@@ -266,6 +267,44 @@ public sealed class CliProcessBridge : IAsyncDisposable
         }
     }
 
+    public bool TryGetStructuredContent(
+        GuiContentProviderDefinition provider,
+        out GuiStructuredContentDefinition content,
+        out string errorMessage)
+    {
+        content = default!;
+        errorMessage = string.Empty;
+
+        if (!IsLoggedIn || remoteRuntime == null)
+        {
+            errorMessage = "❌ 请先登录";
+            return false;
+        }
+
+        if (TryGetSharedState(remoteRuntime) is not IDictionary<string, object> sharedState)
+        {
+            errorMessage = "❌ 无法读取当前运行时共享状态";
+            return false;
+        }
+
+        try
+        {
+            var raw = InvokeGuiContentMethod(provider.ProviderType, sharedState);
+            if (!TryConvertStructuredContent(raw, out content))
+            {
+                errorMessage = "❌ 模块未返回有效的 GUI 列表内容";
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"❌ 读取模块 GUI 内容失败: {ex.Message}";
+            return false;
+        }
+    }
+
     private async Task HandleSyncAsync()
     {
         if (moduleSyncService == null || currentUser == null || string.IsNullOrWhiteSpace(currentUserPublicKeyPem) ||
@@ -315,6 +354,145 @@ public sealed class CliProcessBridge : IAsyncDisposable
         }
 
         return Activator.CreateInstance(runtimeType) as IRemoteGameRuntime;
+    }
+
+    private static IDictionary<string, object>? TryGetSharedState(IRemoteGameRuntime runtime)
+    {
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+
+        var type = runtime.GetType();
+        while (type != null)
+        {
+            var field = type.GetField("sharedState", flags);
+            if (field?.GetValue(runtime) is IDictionary<string, object> typed)
+            {
+                return typed;
+            }
+
+            type = type.BaseType;
+        }
+
+        return null;
+    }
+
+    private static object? InvokeGuiContentMethod(Type providerType, IDictionary<string, object> sharedState)
+    {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance;
+        var methods = providerType
+            .GetMethods(flags)
+            .Where(x => x.Name == "GetGuiContentDefinition")
+            .ToList();
+
+        var method = methods.FirstOrDefault(x =>
+                         x.GetParameters().Length == 1 &&
+                         typeof(IDictionary<string, object>).IsAssignableFrom(x.GetParameters()[0].ParameterType))
+                     ?? methods.FirstOrDefault(x =>
+                         x.GetParameters().Length == 1 &&
+                         typeof(System.Collections.IDictionary).IsAssignableFrom(x.GetParameters()[0].ParameterType))
+                     ?? methods.FirstOrDefault(x => x.GetParameters().Length == 0);
+
+        if (method == null)
+        {
+            throw new InvalidOperationException("未找到 GetGuiContentDefinition 方法");
+        }
+
+        object? instance = null;
+        if (!method.IsStatic)
+        {
+            var ctor = providerType.GetConstructor(Type.EmptyTypes)
+                ?? throw new InvalidOperationException("GUI 内容提供者缺少无参构造函数");
+            instance = ctor.Invoke(null);
+        }
+
+        var parameters = method.GetParameters().Length switch
+        {
+            0 => null,
+            1 => new object[] { sharedState },
+            _ => throw new InvalidOperationException("GetGuiContentDefinition 参数数量不受支持")
+        };
+
+        return method.Invoke(instance, parameters);
+    }
+
+    private static bool TryConvertStructuredContent(object? raw, out GuiStructuredContentDefinition content)
+    {
+        content = default!;
+
+        if (raw is GuiStructuredContentDefinition direct)
+        {
+            content = direct;
+            return true;
+        }
+
+        if (raw is not IDictionary<string, object> map)
+        {
+            return false;
+        }
+
+        var moduleId = map.TryGetValue("ModuleId", out var moduleIdObj) ? moduleIdObj?.ToString() : null;
+        var title = map.TryGetValue("Title", out var titleObj) ? titleObj?.ToString() : null;
+        if (string.IsNullOrWhiteSpace(moduleId) || string.IsNullOrWhiteSpace(title))
+        {
+            return false;
+        }
+
+        var sections = new List<GuiStructuredContentSection>();
+        if (map.TryGetValue("Sections", out var sectionsObj) && sectionsObj is IEnumerable<object> rawSections)
+        {
+            foreach (var sectionEntry in rawSections)
+            {
+                if (sectionEntry is not IDictionary<string, object> sectionMap ||
+                    !sectionMap.TryGetValue("Title", out var sectionTitleObj))
+                {
+                    continue;
+                }
+
+                var sectionTitle = sectionTitleObj?.ToString();
+                if (string.IsNullOrWhiteSpace(sectionTitle))
+                {
+                    continue;
+                }
+
+                var items = new List<GuiStructuredContentItem>();
+                if (sectionMap.TryGetValue("Items", out var itemsObj) && itemsObj is IEnumerable<object> rawItems)
+                {
+                    foreach (var itemEntry in rawItems)
+                    {
+                        if (itemEntry is not IDictionary<string, object> itemMap ||
+                            !itemMap.TryGetValue("PrimaryText", out var primaryObj))
+                        {
+                            continue;
+                        }
+
+                        var primaryText = primaryObj?.ToString();
+                        if (string.IsNullOrWhiteSpace(primaryText))
+                        {
+                            continue;
+                        }
+
+                        var secondaryText = itemMap.TryGetValue("SecondaryText", out var secondaryObj)
+                            ? secondaryObj?.ToString()
+                            : null;
+                        var badge = itemMap.TryGetValue("Badge", out var badgeObj)
+                            ? badgeObj?.ToString()
+                            : null;
+                        var actionText = itemMap.TryGetValue("ActionText", out var actionTextObj)
+                            ? actionTextObj?.ToString()
+                            : null;
+                        var actionCommand = itemMap.TryGetValue("ActionCommand", out var actionCommandObj)
+                            ? actionCommandObj?.ToString()
+                            : null;
+
+                        items.Add(new GuiStructuredContentItem(primaryText, secondaryText, badge, actionText, actionCommand));
+                    }
+                }
+
+                sections.Add(new GuiStructuredContentSection(sectionTitle, items));
+            }
+        }
+
+        content = new GuiStructuredContentDefinition(moduleId!, title!, sections);
+        return true;
     }
 
     public async ValueTask DisposeAsync()

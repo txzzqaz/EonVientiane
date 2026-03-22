@@ -1,5 +1,6 @@
 namespace EonVientiane.EquipmentModule;
 
+using System.Collections;
 using System.Reflection;
 using System.Text.Json;
 
@@ -41,6 +42,44 @@ public static class EquipmentApi
     public static string GetHelpText()
     {
         return "equip <物品名>\n  穿戴装备\nunequip <物品名>\n  卸下装备";
+    }
+
+    public static IDictionary<string, object> GetGuiContentDefinition(IDictionary<string, object> state)
+    {
+        var snapshot = InvokeInventory("GetEquipmentGuiState", state) as IDictionary<string, object>;
+        if (snapshot is null)
+        {
+            return new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ModuleId"] = "equipment",
+                ["Title"] = "装备管理",
+                ["Sections"] = new List<object>()
+            };
+        }
+
+        var availableDice = ReadEquipmentList(snapshot, "AvailableDice");
+        var availableAccessories = ReadEquipmentList(snapshot, "AvailableAccessories");
+        var equippedDice = ReadEquipmentList(snapshot, "EquippedDice");
+        var equippedAccessories = ReadEquipmentList(snapshot, "EquippedAccessories");
+        var maxDice = ReadInt(snapshot, "MaxDice", 8);
+        var maxAccessorySlots = ReadInt(snapshot, "MaxAccessorySlots", 12);
+        var usedAccessorySlots = ReadInt(snapshot, "UsedAccessorySlots", 0);
+
+        var sections = new List<object>
+        {
+            CreateSection($"未装备骰子 ({availableDice.Count})", availableDice.Select(CreateEquipItem).ToList<object>()),
+            CreateSection($"未装备饰品 ({availableAccessories.Count})", availableAccessories.Select(CreateEquipItem).ToList<object>()),
+            CreateSection($"骰子位 {equippedDice.Count}/{maxDice}", BuildDiceSlotItems(equippedDice, maxDice)),
+            CreateSection($"饰品位 {usedAccessorySlots}/{maxAccessorySlots}", BuildAccessorySlotItems(usedAccessorySlots, maxAccessorySlots)),
+            CreateSection($"已装备饰品 ({equippedAccessories.Count})", equippedAccessories.Select(CreateUnequipItem).ToList<object>())
+        };
+
+        return new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["ModuleId"] = "equipment",
+            ["Title"] = "装备管理",
+            ["Sections"] = sections
+        };
     }
 
     public static string GetStarterEquipmentsJson()
@@ -110,6 +149,7 @@ public static class EquipmentApi
                     ["Name"] = name,
                     ["Slot"] = kind.Equals("Dice", StringComparison.OrdinalIgnoreCase) ? "dice" : "accessory",
                     ["Kind"] = kind,
+                    ["Description"] = GetString(metadata, "description"),
                 };
 
                 if (kind.Equals("Accessory", StringComparison.OrdinalIgnoreCase))
@@ -181,5 +221,152 @@ public static class EquipmentApi
         }
 
         return target.Invoke(null, args);
+    }
+
+    private static List<Dictionary<string, object>> ReadEquipmentList(IDictionary<string, object> snapshot, string key)
+    {
+        var result = new List<Dictionary<string, object>>();
+        if (!snapshot.TryGetValue(key, out var raw) || raw is not IEnumerable enumerable)
+        {
+            return result;
+        }
+
+        foreach (var item in enumerable)
+        {
+            if (item is Dictionary<string, object> dict)
+            {
+                result.Add(new Dictionary<string, object>(dict, StringComparer.OrdinalIgnoreCase));
+            }
+            else if (item is IDictionary<string, object> map)
+            {
+                result.Add(new Dictionary<string, object>(map, StringComparer.OrdinalIgnoreCase));
+            }
+        }
+
+        return result;
+    }
+
+    private static int ReadInt(IDictionary<string, object> snapshot, string key, int defaultValue)
+    {
+        if (!snapshot.TryGetValue(key, out var value) || value is null)
+        {
+            return defaultValue;
+        }
+
+        return value switch
+        {
+            int i => i,
+            long l when l <= int.MaxValue && l >= int.MinValue => (int)l,
+            _ when int.TryParse(value.ToString(), out var parsed) => parsed,
+            _ => defaultValue,
+        };
+    }
+
+    private static IDictionary<string, object> CreateSection(string title, List<object> items)
+    {
+        return new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Title"] = title,
+            ["Items"] = items
+        };
+    }
+
+    private static IDictionary<string, object> CreateEquipItem(Dictionary<string, object> eq)
+    {
+        return new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["PrimaryText"] = GetString(eq, "Name"),
+            ["SecondaryText"] = BuildEquipmentDescription(eq),
+            ["Badge"] = GetKindLabel(eq),
+            ["ActionText"] = "装备",
+            ["ActionCommand"] = $"equip {GetString(eq, "Name")}"
+        };
+    }
+
+    private static IDictionary<string, object> CreateUnequipItem(Dictionary<string, object> eq)
+    {
+        return new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["PrimaryText"] = GetString(eq, "Name"),
+            ["SecondaryText"] = BuildEquipmentDescription(eq),
+            ["Badge"] = GetKindLabel(eq),
+            ["ActionText"] = "卸下",
+            ["ActionCommand"] = $"unequip {GetString(eq, "Name")}"
+        };
+    }
+
+    private static List<object> BuildDiceSlotItems(List<Dictionary<string, object>> equippedDice, int maxDice)
+    {
+        var result = new List<object>();
+        for (var i = 0; i < maxDice; i++)
+        {
+            if (i < equippedDice.Count)
+            {
+                var eq = equippedDice[i];
+                result.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["PrimaryText"] = $"骰子位 {i + 1}",
+                    ["SecondaryText"] = GetString(eq, "Name") + BuildSecondarySuffix(eq),
+                    ["Badge"] = "已装备",
+                    ["ActionText"] = "卸下",
+                    ["ActionCommand"] = $"unequip {GetString(eq, "Name")}"
+                });
+            }
+            else
+            {
+                result.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["PrimaryText"] = $"骰子位 {i + 1}",
+                    ["SecondaryText"] = "空",
+                    ["Badge"] = "空位"
+                });
+            }
+        }
+
+        return result;
+    }
+
+    private static List<object> BuildAccessorySlotItems(int usedAccessorySlots, int maxAccessorySlots)
+    {
+        var result = new List<object>();
+        for (var i = 0; i < maxAccessorySlots; i++)
+        {
+            result.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["PrimaryText"] = (i + 1).ToString(),
+                ["Badge"] = i < usedAccessorySlots ? "占用" : "空"
+            });
+        }
+
+        return result;
+    }
+
+    private static string GetKindLabel(Dictionary<string, object> eq)
+    {
+        var kind = GetString(eq, "Kind");
+        return kind.Equals("Dice", StringComparison.OrdinalIgnoreCase) ? "骰子" : "饰品";
+    }
+
+    private static string BuildEquipmentDescription(Dictionary<string, object> eq)
+    {
+        var parts = new List<string>();
+        var description = GetString(eq, "Description");
+        if (!string.IsNullOrWhiteSpace(description))
+        {
+            parts.Add(description);
+        }
+
+        if (!GetKindLabel(eq).Equals("骰子", StringComparison.Ordinal))
+        {
+            parts.Add($"槽位消耗: {GetInt(eq, "AccessorySlotCost", 1)}");
+        }
+
+        return string.Join("\n", parts);
+    }
+
+    private static string BuildSecondarySuffix(Dictionary<string, object> eq)
+    {
+        var description = GetString(eq, "Description");
+        return string.IsNullOrWhiteSpace(description) ? string.Empty : $"\n{description}";
     }
 }

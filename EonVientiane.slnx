@@ -1,7 +1,6 @@
 <Solution>
   <Project Path="EonVientiane.CLI/EonVientiane.CLI.csproj" />
   <Project Path="EonVientiane.GUI/EonVientiane.GUI.csproj" />
-  <Project Path="EonVientiane.GUI.InventoryMenu/EonVientiane.GUI.InventoryMenu.csproj" />
   <Project Path="EonVientiane.Core/EonVientiane.Core.csproj" />
   <Project Path="EonVientiane.AchievementModule/EonVientiane.AchievementModule.csproj" />
   <Project Path="EonVientiane.Achievements/EonVientiane.AchievementConnectionModule/EonVientiane.AchievementConnectionModule.csproj" />

@@ -1,6 +1,7 @@
 {
   "UnlockedAchievementIds": [
     "module.achievement.connection",
-    "module.achievement.connection.question"
+    "module.achievement.connection.question",
+    "module.achievement.status"
   ]
 }

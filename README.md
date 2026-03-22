@@ -57,7 +57,6 @@
 - `EonVientiane.Core`
 - `EonVientiane.CLI`
 - `EonVientiane.GUI`
-- `EonVientiane.GUI.InventoryMenu`
 - `EonVientiane.Server`
 - `EonVientiane.PlayerModule`
 - `EonVientiane.InventoryModule`
@@ -87,7 +86,6 @@
 |------|------|
 | [EonVientiane.Core](EonVientiane.Core) | 逻辑包模型、远程运行时契约、账户与加密服务 |
 | [EonVientiane.GUI](EonVientiane.GUI) | 图形界面外壳；所有操作统一转发至 CLI 输入链路；提供模块化菜单容器 |
-| [EonVientiane.GUI.InventoryMenu](EonVientiane.GUI.InventoryMenu) | 背包模块的 GUI 菜单扩展；实现 `IGuiMenuModule`，构建后 DLL 自动复制到 `gui-modules/` |
 | [EonVientiane.Server](EonVientiane.Server) | 模块签发、签名、加密、同步接口 |
 | [EonVientiane.PlayerModule](EonVientiane.PlayerModule) | 当前客户端主运行时、共享状态、模块分发 |
 | [EonVientiane.InventoryModule](EonVientiane.InventoryModule) | 背包状态与展示 |
@@ -572,7 +570,9 @@
 - 独立 GUI 模块 `EonVientiane.GUI` 已接入：
 	- 左上固定栏位按钮承载 Core/CLI 指令（如 `help`/`account`/`sync`）
 	- 右侧为模块菜单区，每个模块可提供独立小菜单与按钮布局
-	- GUI 按钮与输入框均只做“向 CLI 发送文本命令”，不重复实现业务逻辑- 背包模块 GUI 菜单兼容层 `EonVientiane.GUI.InventoryMenu` 已实现：构建后自动将 DLL 复制到 `gui-modules/`，GUI 启动时自动识别并显示背包菜单卡片
+	- GUI 按钮与输入框均只做“向 CLI 发送文本命令”，不重复实现业务逻辑
+	- 背包模块已在 `EonVientiane.InventoryModule` 内直接提供只读列表视图
+	- 装备/卸下交互由 `EonVientiane.EquipmentModule` 提供独立 GUI（`EquipmentGuiMenuProvider`）
 ## GUI 模块说明（新增）
 
 `EonVientiane.GUI` 的原则是“UI 外壳 + CLI 指令桥接”：
@@ -590,27 +590,49 @@
 
 ### 模块菜单扩展约定
 
-GUI 提供以下约定接口（位于 `EonVientiane.GUI/GuiMenus/GuiMenuContracts.cs`）：
+GUI 提供以下菜单模型（位于 `EonVientiane.GUI/GuiMenus/GuiMenuContracts.cs`）：
 
-- `IGuiMenuModule`
 - `GuiMenuDefinition`
 - `GuiMenuButton`
 - `GuiMenuLayout`（如纵向、双列）
 
-外部 GUI 菜单模块可编译为 DLL 并放入工作区根目录 `gui-modules/`，启动 GUI 时会自动扫描并加载，实现“各模块自行提供菜单内容与布局”。
-已实现的 GUI 菜单模块：
+启动 GUI 时会扫描当前进程已加载的业务模块程序集，寻找约定方法 `GetGuiMenuDefinition()`。
 
-| 菜单模块 | 对应功能模块 | 菜单内容 |
-|---------|------------|---------|
-| [EonVientiane.GUI.InventoryMenu](EonVientiane.GUI.InventoryMenu) | `EonVientiane.InventoryModule` | 查看背包（`inv`）|
+其中 `GetGuiMenuDefinition()` 可返回 `GuiMenuDefinition`，也可返回字典对象（字段：`ModuleId`、`Title`、`Layout`、`Order`、`Buttons`）。
 
-如需为某个功能模块增加 GUI 菜单，按以下约定创建独立平级项目：
+已实现的模块内菜单：
 
-1. 新建独立项目，命名约定为 `EonVientiane.GUI.<ModuleName>Menu`。
-2. 仅 `ProjectReference` `EonVientiane.GUI`（获取契约接口与 Avalonia 依赖），不引用业务模块内部实现。
-3. 实现 `IGuiMenuModule`（必选）和 `IGuiContentModule`（可选，用于向 GUI 中间区域注入自定义面板）。
-4. 在 `.csproj` 中添加 post-build target，将本模块 DLL 复制到 `$(MSBuildThisFileDirectory)..\gui-modules\`。
-5. 将项目加入 `EonVientiane.slnx`。
+| 功能模块 | 菜单提供类 | 菜单内容 |
+|---------|-----------|---------|
+| [EonVientiane.InventoryModule](EonVientiane.InventoryModule) | `InventoryGuiMenuProvider` | 查看背包（`inv`）|
+| [EonVientiane.EquipmentModule](EonVientiane.EquipmentModule) | `EquipmentGuiMenuProvider` | 装备管理（装备 / 卸下）|
+
+如需为某个功能模块增加 GUI 菜单，默认按以下约定直接在该功能模块内实现：
+
+1. 在功能模块中新增 `public` 类型，提供无参 `GetGuiMenuDefinition()`。
+2. 返回值至少包含：模块 ID、标题、按钮列表（按钮文本 + CLI 命令）。
+3. 业务逻辑仍走 CLI 命令链路，不在 GUI 中重复实现。
+
+主区域列表内容可由模块额外提供 `GetGuiContentDefinition(...)`，用于在 GUI 中间区域显示结构化列表或卡片内容。
+
+当前装备 GUI 布局约定：
+
+- 左侧：未装备物品区，按“骰子 / 饰品”分两列显示
+- 右上：固定 `8` 个骰子位
+- 右下：饰品位概览与已装备饰品列表
+- 装备与卸下按钮由 `EquipmentModule` 直接提供，对应命令仍走 `equip` / `unequip`
+
+### 核心模块同步说明（新增）
+
+为避免“旧账号已解锁过模块，但后续新增 GUI / 功能后无法自动更新”的问题，当前基础功能模块已改为在 `/api/logic/connect` 阶段自动参与同步（`issueOnConnect: true`）。
+
+同步是否重新下发仍取决于版本比较：
+
+- 本地缺失：直接下发
+- 服务端版本更高：重新下发
+- 版本未提升：不会重复下发
+
+因此，模块代码有实际更新时，必须同步提升对应 `eon-module.json` 的 `version`。
 ### 战斗签验链路（当前实现）
 
 1. `BattleModule` 在战斗结束时生成战斗过程记录（含 battleId、回合、单位快照、日志）。

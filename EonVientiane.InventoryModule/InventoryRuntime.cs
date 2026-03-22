@@ -109,16 +109,16 @@ public static class InventoryApi
 
         foreach (var eq in equipments)
         {
-            sb.AppendLine($"  • {DescribeEquipment(eq)}");
+            AppendEquipmentDescription(sb, eq);
         }
 
         if (equippedBySlot.Count > 0)
         {
             sb.AppendLine();
-            sb.AppendLine($"=== 已穿戴装备 ({equippedBySlot.Count}) ===");
+            sb.AppendLine($"=== 已穿戴 ({equippedBySlot.Count}) ===");
             foreach (var e in equippedBySlot.Values)
             {
-                sb.AppendLine($"  • [{GetString(e, "Slot")}] {DescribeEquipment(e)}");
+                AppendEquipmentDescription(sb, e);
             }
         }
 
@@ -132,6 +132,53 @@ public static class InventoryApi
         var equippedDiceCount = equippedItems.Count(IsDice);
         var usedAccessorySlots = equippedItems.Where(IsAccessory).Sum(GetAccessorySlotCost);
         return $"已装备: 骰子 {equippedDiceCount}/{MaxEquippedDice}，饰品槽 {usedAccessorySlots}/{MaxAccessorySlots}";
+    }
+
+    public static IDictionary<string, object> GetGuiContentDefinition(IDictionary<string, object> state)
+    {
+        var items = GetItems(state);
+        var equipments = GetEquipments(state);
+        var equippedBySlot = GetEquippedBySlot(state);
+
+        var sections = new List<object>
+        {
+            CreateGuiSection(
+                $"普通物品 ({items.Count})",
+                items.Select(CreateGuiItemFromItemEntry).ToList<object>()),
+
+            CreateGuiSection(
+                $"背包装备 ({equipments.Count})",
+                equipments.Select(CreateGuiItemFromEquipment).ToList<object>()),
+
+            CreateGuiSection(
+                $"已穿戴 ({equippedBySlot.Count})",
+                equippedBySlot.Values.Select(CreateGuiItemFromEquipment).ToList<object>())
+        };
+
+        return new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["ModuleId"] = "inventory",
+            ["Title"] = "背包列表",
+            ["Sections"] = sections
+        };
+    }
+
+    public static IDictionary<string, object> GetEquipmentGuiState(IDictionary<string, object> state)
+    {
+        var equipments = GetEquipments(state);
+        var equippedBySlot = GetEquippedBySlot(state);
+        var equippedItems = equippedBySlot.Values.ToList();
+
+        return new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["AvailableDice"] = equipments.Where(IsDice).Select(CloneEquipment).ToList<object>(),
+            ["AvailableAccessories"] = equipments.Where(IsAccessory).Select(CloneEquipment).ToList<object>(),
+            ["EquippedDice"] = equippedItems.Where(IsDice).Select(CloneEquipment).ToList<object>(),
+            ["EquippedAccessories"] = equippedItems.Where(IsAccessory).Select(CloneEquipment).ToList<object>(),
+            ["MaxDice"] = MaxEquippedDice,
+            ["MaxAccessorySlots"] = MaxAccessorySlots,
+            ["UsedAccessorySlots"] = equippedItems.Where(IsAccessory).Sum(GetAccessorySlotCost)
+        };
     }
 
     private static string BuildEquipKey(Dictionary<string, object> eq, Dictionary<string, Dictionary<string, object>> equippedBySlot)
@@ -263,8 +310,79 @@ public static class InventoryApi
     private static string DescribeEquipment(Dictionary<string, object> eq)
     {
         var name = GetString(eq, "Name");
-        var slot = GetString(eq, "Slot");
-        return $"{name} [{slot}]";
+        var kind = GetEquipmentKindLabel(eq);
+        return string.IsNullOrWhiteSpace(kind)
+            ? name
+            : $"{name}（{kind}）";
+    }
+
+    private static void AppendEquipmentDescription(StringBuilder sb, Dictionary<string, object> eq)
+    {
+        sb.AppendLine($"  • {DescribeEquipment(eq)}");
+
+        var description = GetString(eq, "Description");
+        if (!string.IsNullOrWhiteSpace(description))
+        {
+            sb.AppendLine($"    描述: {description}");
+        }
+
+        if (IsAccessory(eq))
+        {
+            sb.AppendLine($"    饰品槽位: {GetAccessorySlotCost(eq)}");
+        }
+    }
+
+    private static string GetEquipmentKindLabel(Dictionary<string, object> eq)
+    {
+        return IsDice(eq) ? "骰子"
+            : IsAccessory(eq) ? "饰品"
+            : string.Empty;
+    }
+
+    private static IDictionary<string, object> CreateGuiSection(string title, List<object> items)
+    {
+        return new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Title"] = title,
+            ["Items"] = items
+        };
+    }
+
+    private static IDictionary<string, object> CreateGuiItemFromItemEntry(ItemEntry item)
+    {
+        return new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["PrimaryText"] = item.Name,
+            ["SecondaryText"] = item.Quantity > 1 ? $"数量: {item.Quantity}" : "数量: 1",
+            ["Badge"] = "物品"
+        };
+    }
+
+    private static IDictionary<string, object> CreateGuiItemFromEquipment(Dictionary<string, object> eq)
+    {
+        var details = new List<string>();
+        var description = GetString(eq, "Description");
+        if (!string.IsNullOrWhiteSpace(description))
+        {
+            details.Add(description);
+        }
+
+        if (IsAccessory(eq))
+        {
+            details.Add($"饰品槽位: {GetAccessorySlotCost(eq)}");
+        }
+
+        return new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["PrimaryText"] = GetString(eq, "Name"),
+            ["SecondaryText"] = details.Count == 0 ? string.Empty : string.Join("\n", details),
+            ["Badge"] = GetEquipmentKindLabel(eq)
+        };
+    }
+
+    private static IDictionary<string, object> CloneEquipment(Dictionary<string, object> eq)
+    {
+        return new Dictionary<string, object>(eq, StringComparer.OrdinalIgnoreCase);
     }
 
     private static List<Dictionary<string, object>> DeserializeEquipments(string? json)

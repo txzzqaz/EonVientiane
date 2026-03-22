@@ -1,5 +1,3 @@
-using Avalonia.Controls;
-
 namespace EonVientiane.GUI.GuiMenus;
 
 public enum GuiMenuLayout
@@ -24,24 +22,22 @@ public sealed record GuiMenuDefinition(
     int Order,
     IReadOnlyList<GuiMenuButton> Buttons);
 
-public interface IGuiMenuModule
-{
-    GuiMenuDefinition GetMenu();
-}
+public sealed record GuiStructuredContentItem(
+    string PrimaryText,
+    string? SecondaryText = null,
+    string? Badge = null,
+    string? ActionText = null,
+    string? ActionCommand = null);
 
-/// <summary>
-/// 可选接口：模块同时实现此接口时，可向 GUI 中间区域注入自定义面板。
-/// 面板内容由模块完全控制（可以是表格、卡片、战斗动画区等任意 Avalonia Control）。
-/// 当用户点击该模块中标注了 ActivatesContent = true 的按钮时，面板会替换默认日志视图显示。
-/// 点击其他模块按钮或顶部「clear」按钮时，会切回日志视图。
-/// </summary>
-public interface IGuiContentModule
-{
-    string ModuleId { get; }
+public sealed record GuiStructuredContentSection(
+    string Title,
+    IReadOnlyList<GuiStructuredContentItem> Items);
 
-    /// <summary>
-    /// 返回一个 Avalonia Control，GUI 会将其放入中间内容区。    
-    /// 此方法每次激活时都会被调用，模块可根据需要返回新实例或复用同一实例。
-    /// </summary>
-    Control CreateContentPanel();
-}
+public sealed record GuiStructuredContentDefinition(
+    string ModuleId,
+    string Title,
+    IReadOnlyList<GuiStructuredContentSection> Sections);
+
+public sealed record GuiContentProviderDefinition(
+    string ModuleId,
+    Type ProviderType);

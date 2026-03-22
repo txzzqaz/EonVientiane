@@ -1,4 +1,5 @@
 {
   "moduleId": "module.battle.core",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "issueOnConnect": true
 }
