@@ -50,24 +50,6 @@
 - [EonVientiane.EquipmentModule/EquipmentCatalog.cs](EonVientiane.EquipmentModule/EquipmentCatalog.cs#L1-L70)
 - [EonVientiane.LevelModule/LevelCatalog.cs](EonVientiane.LevelModule/LevelCatalog.cs)
 
-### 4. 当前服务端签发模块发现方式
-
-服务端签发侧不再维护“每个模块一个硬编码 DLL 路径/分支判断”。
-
-当前采用“模块自带清单 + 服务端自动扫描”的方式：
-
-- 每个可签发模块在自身项目根目录提供 `eon-module.json`
-- 服务端启动时自动扫描工作区中的模块清单
-- 服务端根据清单解析模块 `moduleId`、版本、文件名与 DLL 路径
-- 首次连接自动下发的模块由清单字段控制，而不是在服务端代码中写死
-
-相关实现：
-
-- [EonVientiane.Server/ServerModuleRegistry.cs](EonVientiane.Server/ServerModuleRegistry.cs)
-- [EonVientiane.Server/Program.cs](EonVientiane.Server/Program.cs)
-
-这意味着新增模块时，应优先补齐模块自身清单，而不是修改服务端行为代码。
-
 ## 当前项目结构
 
 ### 已存在项目
@@ -305,28 +287,91 @@
 - 所有行动决策（选目标、选骰、是否跳过、攻击值策略）必须由行动主体自身 Runtime 提供
 - 宿主与模块间仅通过约定输入输出交互，不共享业务内部状态模型
 
-### 3.2 禁止通过服务端硬编码接入新模块（新增注意事项）
+### 3.2 服务端模块签发注意事项（新增）
 
-以下做法同样属于高耦合，明确禁止：
+服务端签发链路必须使用“模块自带清单 + 自动扫描注册”模式，不允许回退到硬编码路径映射。
 
-- 新增一个模块时，要求去修改服务端中的固定 `DllPath` 变量列表
-- 新增一个模块时，要求去修改服务端中的 `switch` / `if` 分发分支
-- 将某个具体模块的签发规则直接写死在服务端主流程中
+当前约定：
 
-应采用的方式：
+- 每个可签发模块在项目根目录提供 `eon-module.json`
+- 服务端启动时扫描工作区内全部 `eon-module.json` 并建立注册表
+- 服务端仅按 `moduleId -> manifest` 进行签发，不感知具体业务模块实现
 
-- 模块在自身项目目录声明 `eon-module.json`
-- 服务端通过扫描清单建立模块注册表
-- 是否“登录即签发”、模块版本、文件名等信息，优先由模块清单声明
-- 服务端只负责扫描、校验、签名、加密与分发，不负责维护具体模块名单
+以下实现明确禁止：
 
-当前约定下，新增一个可签发模块的最小动作应为：
+- 在服务端入口中新增固定 `DllPath` 变量（例如 `xxxModuleDllPath`）
+- 通过 `switch/case` 或 `if/else` 对具体 `moduleId` 做硬编码分发
+- 新增模块时要求改动服务端业务代码才能参与签发
 
-1. 新建独立项目
-2. 构建出自身 DLL
-3. 在项目根目录补充 `eon-module.json`
+新增模块的正确流程：
 
-而不是去修改服务端主程序。
+1. 新建独立模块项目并产出 DLL
+2. 在该项目根目录添加/维护 `eon-module.json`（至少包含 `moduleId`、`version`）
+3. 按需设置 `issueOnConnect`
+4. 重启服务端后自动生效
+
+### 3.3 `eon-module.json` 字段规范（新增）
+
+`eon-module.json` 用于描述“模块签发元信息”，由服务端自动扫描并注册。
+
+最小示例（推荐起步）：
+
+```json
+{
+	"moduleId": "module.player.core",
+	"version": "1.0.0"
+}
+```
+
+完整示例（按需使用）：
+
+```json
+{
+	"moduleId": "module.item.dice.d6",
+	"version": "1.2.0",
+	"fileName": "module.item.dice.d6.json",
+	"assemblyName": "EonVientiane.Item.Dice.D6",
+	"dllName": "EonVientiane.Item.Dice.D6.dll",
+	"issueOnConnect": false
+}
+```
+
+字段说明：
+
+- `moduleId`（必填）：模块唯一 ID（全局唯一，重复会导致服务端启动失败）
+- `version`（建议填写）：服务端版本号；未填写时默认 `1.0.0`
+- `fileName`（可选）：下发包文件名；未填写时默认 `<moduleId>.json`
+- `assemblyName`（可选）：程序集名称；未填写时默认“模块目录名”
+- `dllName`（可选）：DLL 文件名；未填写时默认 `<assemblyName>.dll`
+- `issueOnConnect`（可选）：是否在 `/api/logic/connect` 阶段自动签发；默认 `false`
+
+注意：若 `moduleId` 已被成就发放链路（如 `GetModulesToIssueOnUnlock`）引用，但对应清单缺失，服务端不会签发该模块。
+
+### 3.4 `sync` 更新判定规则（新增）
+
+`sync` 命令最终调用 `ModuleSyncService.ManualSyncAsync(...)`，其更新判定分两段：
+
+1. 客户端本地状态采集
+	 - 扫描用户包目录下所有 `*.json`（逻辑包信封）
+	 - 收集 `ExistingModuleIds`
+	 - 收集 `ModuleVersions[moduleId] = 本地版本`
+2. 服务端逐模块判定是否下发
+	 - 若本地不存在该模块 ID：下发
+	 - 若本地存在但未上报该模块版本：不下发
+	 - 若本地版本 `<` 服务端版本：下发
+	 - 否则（本地版本 `>=` 服务端版本）：不下发
+
+版本比较规则：
+
+- 优先按 `System.Version` 语义比较（如 `1.2.10 > 1.2.2`）
+- 若无法解析为 `Version`，回退为字符串序比较（`Ordinal`）
+
+因此，模块是否“需要更新”取决于：
+
+- 服务端清单中的 `version`
+- 客户端本地逻辑包中记录的 `version`
+
+两者比较结果，而不是文件时间戳。
 
 ### 4. 装备数据传递约束（新增）
 
@@ -381,20 +426,13 @@
 
 #### 服务端物品注册/签发能力
 
-当前服务端已实现“模块清单注册表 + 自动扫描签发”。
+当前服务端已落地“清单驱动自动注册 + 按模块 ID 签发”能力：
 
-即：
+- 注册入口： [EonVientiane.Server/ServerModuleRegistry.cs](EonVientiane.Server/ServerModuleRegistry.cs)
+- 签发入口： [EonVientiane.Server/Program.cs](EonVientiane.Server/Program.cs)
+- 模块声明：各模块项目根目录 `eon-module.json`
 
-- 每个模块在自身目录提供 `eon-module.json`
-- 服务端启动时自动扫描清单并建立注册表
-- 发放逻辑按 `moduleId` 从注册表查询，不再要求为新模块修改服务端代码
-
-相关实现见：
-
-- [EonVientiane.Server/ServerModuleRegistry.cs](EonVientiane.Server/ServerModuleRegistry.cs)
-- [EonVientiane.Server/Program.cs](EonVientiane.Server/Program.cs)
-
-因此当前架构已经满足“一个物品一个独立项目”的发放模型，但前提是模块必须遵守清单约定。
+这保证了“一个物品一个独立项目”的发放模型：新增模块无需改服务端签发逻辑代码。
 
 ### 独立道具项目
 
@@ -514,7 +552,6 @@
 
 - 账户与加密逻辑包体系
 - 服务端签发与客户端热加载
-- 服务端模块签发注册表：已改为扫描各模块自带 `eon-module.json`，移除按模块逐个硬编码 DLL 路径/分支的方式
 - 基础模块化命令分发
 - 成就模块下发流程
 - 独立战斗模块（`EonVientiane.BattleModule`）
