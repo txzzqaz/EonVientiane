@@ -1,116 +1,686 @@
-# EonVientiane
+# Eon Vientiane
 
-EonVientiane 是一个基于 .NET 与 MonoGame 的多人战斗游戏项目，包含图形客户端、独立服务端、脚本化 CLI 客户端以及共享协议层。
+## 当前定位
 
-## 项目目标
+本仓库当前采用“服务端签发加密逻辑包 + 客户端动态加载 DLL”的模块化架构。
 
-- 提供可本地运行的多人对战验证环境（服务端 + 多客户端）
-- 支持账号系统、房间大厅、对战流程、道具与背包系统
-- 支持离线本地数据保存与联机同步能力
-- 提供可脚本化 CLI 以便自动化测试服务器接口
+文档以当前共识为准：
 
-## 子项目结构
+- 所有功能模块与道具模块都应是**平级独立项目**。
+- 服务端负责为玩家签发加密 DLL。
+- 客户端只依赖**统一入口约定**，不依赖道具内部实现。
+- **任何组件之间均不存在必要依赖**。
+- 不允许通过 `BaseItem`、`BaseDice`、`BaseAccessory` 一类强制基类建立耦合。
 
-| 子项目 | 路径 | 作用 |
-| --- | --- | --- |
-| 图形客户端 | `EonVientiane/` | 主游戏客户端（MonoGame） |
-| 服务端 | `EonVientianeServer/` | TCP 游戏服务器，负责认证、房间、背包、战斗编排 |
-| CLI 客户端 | `EonVientianeCliClient/` | 命令行测试工具，用于脚本化调用服务端协议 |
-| 共享库 | `Shared/` | 网络协议、随机工具、钱包相关共享类型 |
+## 当前已实现的核心架构
 
-## 环境要求
+### 1. 远程运行时总契约
 
-- Linux / Windows / macOS
-- .NET SDK 9.0（客户端、服务端、CLI）
-- .NET SDK 8.0（`Shared` 当前目标框架为 `net8.0`）
-- OpenGL 运行环境（MonoGame DesktopGL 依赖）
+客户端顶层运行时使用统一契约 `IRemoteGameRuntime`，定义于 [EonVientiane.Core/Models/RemoteRuntimeContract.cs](EonVientiane.Core/Models/RemoteRuntimeContract.cs#L1-L15)。
 
-> 说明：当前 `EonVientiane.sln` 仅包含图形客户端项目；服务端与 CLI 需按项目路径单独构建或运行。
+该契约仅用于“顶层运行时”，不要求每个道具项目都实现它。
 
-## 快速开始（本地联调）
+### 2. 逻辑包封装与加载
 
-### 1) 构建
+- 逻辑包信封定义于 [EonVientiane.Core/Models/LogicPackageEnvelope.cs](EonVientiane.Core/Models/LogicPackageEnvelope.cs#L1-L29)
+- 逻辑包加载服务位于 [EonVientiane.Core/Services/LogicPackageService.cs](EonVientiane.Core/Services/LogicPackageService.cs)
+- 模块同步服务位于 [EonVientiane.Core/Services/ModuleSyncService.cs](EonVientiane.Core/Services/ModuleSyncService.cs)
 
-```bash
-dotnet build Shared/Shared.csproj -c Debug
-dotnet build EonVientiane/EonVientiane.csproj -c Debug
-dotnet build EonVientianeServer/EonVientianeServer.csproj -c Debug
-dotnet build EonVientianeCliClient/EonVientianeCliClient.csproj -c Debug
+当前流程为：
+
+1. 服务端生成 DLL 逻辑包。
+2. 使用用户公钥加密 AES 密钥。
+3. 对逻辑包整体签名。
+4. 客户端下载后校验签名、解密内容并热加载。
+
+### 3. 当前模块发现方式
+
+当前模块之间主要依赖“反射约定”，而不是编译期强依赖。
+
+例如：
+
+- `CanHandleCommand(string command)`
+- `ExecuteCommand(IDictionary<string, object> state, string command, string[] args)`
+- `GetHelpText()`
+
+相关实现可见：
+
+- [EonVientiane.PlayerModule/PlayerRuntime.cs](EonVientiane.PlayerModule/PlayerRuntime.cs#L194-L244)
+- [EonVientiane.InventoryModule/InventoryRuntime.cs](EonVientiane.InventoryModule/InventoryRuntime.cs#L1-L175)
+- [EonVientiane.EquipmentModule/EquipmentCatalog.cs](EonVientiane.EquipmentModule/EquipmentCatalog.cs#L1-L70)
+- [EonVientiane.LevelModule/LevelCatalog.cs](EonVientiane.LevelModule/LevelCatalog.cs)
+
+## 当前项目结构
+
+### 已存在项目
+
+- `EonVientiane.Core`
+- `EonVientiane.CLI`
+- `EonVientiane.GUI`
+- `EonVientiane.Server`
+- `EonVientiane.PlayerModule`
+- `EonVientiane.InventoryModule`
+- `EonVientiane.EquipmentModule`
+- `EonVientiane.LevelModule`
+- `EonVientiane.RankModule`
+- `EonVientiane.EffectModule`
+- `EonVientiane.BattleModule`
+- `EonVientiane.NetworkBattleModule`
+- `EonVientiane.Rank.Stardust`
+- `EonVientiane.Rank.Moonlight`
+- `EonVientiane.Rank.Sunblaze`
+- `EonVientiane.Rank.Galaxy`
+- `EonVientiane.Rank.Genesis`
+- `EonVientiane.Rank.AllCreation`
+- `EonVientiane.Rank.Transcend`
+- `EonVientiane.Rank.Infinite`
+- `EonVientiane.Rank.Eternal`
+- `EonVientiane.Item.Accessory.Self`
+- `EonVientiane.Item.Dice.D6`
+- `EonVientiane.AchievementModule`
+- `EonVientiane.AchievementConnectionModule`
+
+### 当前职责概览
+
+| 项目 | 职责 |
+|------|------|
+| [EonVientiane.Core](EonVientiane.Core) | 逻辑包模型、远程运行时契约、账户与加密服务 |
+| [EonVientiane.GUI](EonVientiane.GUI) | 图形界面外壳；所有操作统一转发至 CLI 输入链路；提供模块化菜单容器 |
+| [EonVientiane.Server](EonVientiane.Server) | 模块签发、签名、加密、同步接口 |
+| [EonVientiane.PlayerModule](EonVientiane.PlayerModule) | 当前客户端主运行时、共享状态、模块分发 |
+| [EonVientiane.InventoryModule](EonVientiane.InventoryModule) | 背包状态与展示 |
+| [EonVientiane.EquipmentModule](EonVientiane.EquipmentModule) | 装备命令转发 |
+| [EonVientiane.LevelModule](EonVientiane.LevelModule) | 关卡命令 |
+| [EonVientiane.RankModule](EonVientiane.RankModule) | 段位总线：段位发现、段位分、升段、切换 |
+| [EonVientiane.EffectModule](EonVientiane.EffectModule) | 战斗效果存储区读写与作用域键管理 |
+| [EonVientiane.BattleModule](EonVientiane.BattleModule) | 战斗生命周期、回合与伤害结算宿主 |
+| [EonVientiane.NetworkBattleModule](EonVientiane.NetworkBattleModule) | 局域网房间、进房准备、分组与 PVP 启动编排 |
+| [EonVientiane.AchievementModule](EonVientiane.AchievementModule) | 成就相关逻辑 |
+
+## 段位系统（新增）
+
+玩家成长机制已由“等级/经验”调整为“段位/段位分”，采用完全模块化实现：
+
+- 段位总线模块：`EonVientiane.RankModule`
+- 段位定义模块（平级独立项目）：
+	- `Stardust`（星尘）
+	- `Moonlight`（月辉）
+	- `Sunblaze`（日曜）
+	- `Galaxy`（天河）
+	- `Genesis`（创生）
+	- `AllCreation`（万物）
+	- `Transcend`（超脱）
+	- `Infinite`（无限）
+	- `Eternal`（永恒）
+
+机制约定：
+
+- 每个段位有独立段位分（按段位 ID 存储，不互相覆盖）
+- 已拥有段位可随时切换，不影响其他段位已累积的段位分
+- 段位模块之间仅通过反射约定耦合（`GetRankMetadata/GetRank/GetRanks`）
+
+当前命令：
+
+- `rank` / `rank status`：查看当前段位
+- `ranks` / `rank list`：查看全部段位与拥有状态
+- `rank switch <段位ID>`：切换到已拥有段位
+
+## 战斗系统的目标规则
+
+以下规则为当前确认后的战斗设计目标。
+
+### 1. 战斗共享变量
+
+战斗过程中，只有以下变量属于公共战斗约定：
+
+- `HP`
+- `ATKP`
+
+除此以外的变量均视为**道具自己的内部变量**，战斗宿主不直接理解其含义。
+
+### 2. 效果系统
+
+除 `HP` 与 `ATKP` 之外，还需要一个“效果系统”。
+
+效果系统的本质是：**战斗过程中允许道具跨回合读写的变量存储区**。
+
+该系统用于：
+
+- 保存饰品或骰子在本场战斗中写入的状态
+- 支持跨回合持续效果
+- 支持延迟结算效果
+- 支持道具之间通过宿主转交共享状态
+
+效果系统本身不解释变量语义，只负责提供稳定的存取区域。
+
+也就是说：
+
+- `HP`、`ATKP` 是公共战斗变量
+- 效果存储区是公共宿主能力
+- 具体效果键值的业务含义仍由道具自己决定
+
+### 3. 玩家基础状态
+
+战斗前，玩家没有固有属性。
+
+玩家在战斗中的任何属性，都应由已装备道具提供。
+
+### 4. 道具分类
+
+道具只分为两类：
+
+- 饰品
+- 骰子
+
+骰子再分为：
+
+- `AD`：主动骰子
+- `PD`：被动骰子
+
+一个骰子可以同时具备 `AD` 与 `PD` 两种能力。
+
+### 5. 战斗流程
+
+1. 随机决定先后手。
+2. 加载所有饰品的战前效果。
+3. 当前行动方进入主动回合，需选择一个 `AD` 骰子并指定目标。
+4. 所有可指定对象的行动均可指定任意对象，包括自身。
+5. 若某单位被施加 `ATKP`，则该单位进入被动回合。
+6. 被攻击单位在被动回合可选择一个 `PD` 骰子处理 `ATKP`，或使用 `battle pass` 直接承受 `ATKP` 伤害。
+7. 被动处理后得到伤害值。
+8. 被动结算后，该单位直接进入主动回合。
+9. 所有效果均可在结算过程中读写效果存储区。
+10. 结算伤害并检查失败。
+
+战斗内命令约定（当前实现）：
+
+- `battle active` 为统一行动指令：
+	- 主动回合：`battle active <目标> <主动骰子名>`
+	- 被动回合：`battle active <被动骰子名>`
+- `battle pass`：
+	- 主动回合：跳过当前回合。
+	- 被动回合：不使用 `PD`，直接将 `ATKP` 转化为伤害。
+
+### 6. 失败条件
+
+任一单位满足以下任一条件即失败：
+
+- 在受到伤害前不存在 `HP`
+- 在受到伤害后 `HP <= 0`
+
+### 8. 局域网房间流程（新增）
+
+网络对战通过独立模块 `EonVientiane.NetworkBattleModule` 提供房间流程，命令入口为 `lan`：
+
+- `lan create [房间名] [阵型]`：创建局域网房间
+- `lan join <房间ID>`：进入房间
+- `lan ready [on|off]`：准备 / 取消准备
+- `lan group <组号>`：设置分组（如 `A/B`）
+- `lan start`：由房主在“全员已准备 + 至少两个分组”时启动 `pvp`
+
+启动时模块会将房间分组映射为阵型（如 `2v2`），并通过 `BattleApi.StartSession(state, "pvp", formation)` 进入战斗。
+
+### 7. 对战接口统一原则（已落地）
+
+- 战斗由业务模块发起，不再由用户直接使用 `battle start`。
+- 统一启动接口为 `BattleApi.StartSession(IDictionary<string, object> state, string mode, string? formation)`。
+- 例如 `LevelModule` 在 `loadlevel` 时调用 `BattleApi.StartSession(..., "level", formation)` 进入战斗。
+- 关卡敌人被视作“特殊账号”，具备独立公开战斗变量（如 `HP`、`ATKP`）与自动行动条件。
+- 本地关卡与网络对战的核心差异仅在敌方决策来源：
+	- `level`：敌方依据关卡条件自动判定行动
+	- `pvp`：敌方由远端玩家自主选择行动
+
+在可见性边界上，客户端对敌方遵循最小可见原则：
+
+- 仅可读取敌方公开战斗变量（尤其 `HP`）与效果区结果
+- 不可读取敌方道具表
+- 仅可写入敌方效果区或发送 `ATKP`
+
+## 架构约束
+
+### 1. 道具必须是独立项目
+
+每个饰品或骰子都应作为与其他模块平级的独立项目存在。
+
+示例：
+
+- `EonVientiane.Item.Accessory.BasicHp`
+- `EonVientiane.Item.Accessory.Thorns`
+- `EonVientiane.Item.Dice.D6`
+- `EonVientiane.Item.Dice.CounterShield`
+
+### 2. 不允许存在强制基类
+
+以下方向不符合当前架构原则：
+
+- 必须继承 `BaseItem`
+- 必须继承 `BaseDice`
+- 必须继承 `BaseAccessory`
+- 必须引用单独的“物品 SDK”后才能被宿主识别
+
+原因：这些设计会形成“必要依赖”，违反组件独立规则。
+
+### 3. 允许的耦合形式
+
+允许的只有“约定耦合”：
+
+- 约定的程序集命名
+- 约定的导出类型名
+- 约定的静态方法名
+- 约定的输入输出数据结构
+
+宿主只检查这些约定是否存在，不关心内部实现。
+
+### 3.1 禁止使用高度耦合方法（新增注意事项）
+
+以下实现被视为高度耦合，明确禁止：
+
+- 在战斗宿主中内置“策略决策”逻辑（例如默认选骰、按固定规则自动补攻击值、按模式硬编码行为差异）
+- 宿主通过读取某个关卡或道具的私有业务字段来决定行动
+- 为某个具体关卡或道具增加专用分支判断（特判）
+
+应采用的方式：
+
+- 宿主只负责流程推进、接口调用、结果合并与结算
+- 所有行动决策（选目标、选骰、是否跳过、攻击值策略）必须由行动主体自身 Runtime 提供
+- 宿主与模块间仅通过约定输入输出交互，不共享业务内部状态模型
+
+### 3.2 服务端模块签发注意事项（新增）
+
+服务端签发链路必须使用“模块自带清单 + 自动扫描注册”模式，不允许回退到硬编码路径映射。
+
+当前约定：
+
+- 每个可签发模块在项目根目录提供 `eon-module.json`
+- 服务端启动时扫描工作区内全部 `eon-module.json` 并建立注册表
+- 服务端仅按 `moduleId -> manifest` 进行签发，不感知具体业务模块实现
+
+以下实现明确禁止：
+
+- 在服务端入口中新增固定 `DllPath` 变量（例如 `xxxModuleDllPath`）
+- 通过 `switch/case` 或 `if/else` 对具体 `moduleId` 做硬编码分发
+- 新增模块时要求改动服务端业务代码才能参与签发
+
+新增模块的正确流程：
+
+1. 新建独立模块项目并产出 DLL
+2. 在该项目根目录添加/维护 `eon-module.json`（至少包含 `moduleId`、`version`）
+3. 按需设置 `issueOnConnect`
+4. 重启服务端后自动生效
+
+### 3.3 `eon-module.json` 字段规范（新增）
+
+`eon-module.json` 用于描述“模块签发元信息”，由服务端自动扫描并注册。
+
+最小示例（推荐起步）：
+
+```json
+{
+	"moduleId": "module.player.core",
+	"version": "1.0.0"
+}
 ```
 
-### 2) 启动服务端
+完整示例（按需使用）：
 
-```bash
-dotnet run --project EonVientianeServer/EonVientianeServer.csproj -- 7777
+```json
+{
+	"moduleId": "module.item.dice.d6",
+	"version": "1.2.0",
+	"fileName": "module.item.dice.d6.json",
+	"assemblyName": "EonVientiane.Item.Dice.D6",
+	"dllName": "EonVientiane.Item.Dice.D6.dll",
+	"issueOnConnect": false
+}
 ```
 
-服务端交互命令：
-- `status`：查看在线状态
-- `help`：查看命令帮助
-- `quit` / `exit`：退出服务端
+字段说明：
 
-### 3) 启动图形客户端
+- `moduleId`（必填）：模块唯一 ID（全局唯一，重复会导致服务端启动失败）
+- `version`（建议填写）：服务端版本号；未填写时默认 `1.0.0`
+- `fileName`（可选）：下发包文件名；未填写时默认 `<moduleId>.json`
+- `assemblyName`（可选）：程序集名称；未填写时默认“模块目录名”
+- `dllName`（可选）：DLL 文件名；未填写时默认 `<assemblyName>.dll`
+- `issueOnConnect`（可选）：是否在 `/api/logic/connect` 阶段自动签发；默认 `false`
+
+注意：若 `moduleId` 已被成就发放链路（如 `GetModulesToIssueOnUnlock`）引用，但对应清单缺失，服务端不会签发该模块。
+
+### 3.4 `sync` 更新判定规则（新增）
+
+`sync` 命令最终调用 `ModuleSyncService.ManualSyncAsync(...)`，其更新判定分两段：
+
+1. 客户端本地状态采集
+	 - 扫描用户包目录下所有 `*.json`（逻辑包信封）
+	 - 收集 `ExistingModuleIds`
+	 - 收集 `ModuleVersions[moduleId] = 本地版本`
+2. 服务端逐模块判定是否下发
+	 - 若本地不存在该模块 ID：下发
+	 - 若本地存在但未上报该模块版本：不下发
+	 - 若本地版本 `<` 服务端版本：下发
+	 - 否则（本地版本 `>=` 服务端版本）：不下发
+
+版本比较规则：
+
+- 优先按 `System.Version` 语义比较（如 `1.2.10 > 1.2.2`）
+- 若无法解析为 `Version`，回退为字符串序比较（`Ordinal`）
+
+因此，模块是否“需要更新”取决于：
+
+- 服务端清单中的 `version`
+- 客户端本地逻辑包中记录的 `version`
+
+两者比较结果，而不是文件时间戳。
+
+### 4. 装备数据传递约束（新增）
+
+装备数据在模块间传递时，必须使用“可序列化字典/JSON 对象”约定（如 `Dictionary<string, object>` 或 JSON 对象数组），不得定义或依赖跨模块共享的固定装备类型（DTO/record/class）。
+
+约束目标：
+
+- 防止 `InventoryModule`、`EquipmentModule`、`BattleModule` 之间形成编译期类型耦合
+- 允许各模块独立演进字段（新增/缺省字段不破坏加载）
+- 保持“宿主仅检查约定字段，不依赖内部实现”的原则
+
+当前约定字段（最小集合）建议包含：`Id`、`Name`、`Slot`；可选字段可按需扩展（如 `Kind`、`AccessorySlotCost`）。
+
+## 推荐的后续模块划分
+
+### 必需模块
+
+#### `EonVientiane.BattleModule`
+
+职责：
+
+- 战斗初始化
+- 先后手随机
+- 饰品战前效果加载
+- 效果存储区生命周期管理
+- `AD` 行动处理
+- `PD` 响应处理
+- `ATKP` 到伤害的结算
+- 失败判定
+
+#### `EonVientiane.EffectModule`
+
+职责：
+
+- 提供战斗效果存储区
+- 提供跨回合变量读写能力
+- 提供作用域管理（如战斗级、单位级、来源道具级）
+- 提供效果清理时机
+
+该模块不解释效果内容，只管理存储和访问约定。
+
+#### `EonVientiane.BattleHostModule` 或对 `PlayerModule` 扩展
+
+职责：
+
+- 扫描当前已加载的道具 DLL
+- 根据约定识别“饰品模块”和“骰子模块”
+- 在正确阶段调用正确入口
+- 将战斗公共变量与效果存储区传递给道具模块
+
+建议优先独立为 `BattleHostModule`，避免把 [EonVientiane.PlayerModule/PlayerRuntime.cs](EonVientiane.PlayerModule/PlayerRuntime.cs) 继续扩大。
+
+#### 服务端物品注册/签发能力
+
+当前服务端已落地“清单驱动自动注册 + 按模块 ID 签发”能力：
+
+- 注册入口： [EonVientiane.Server/ServerModuleRegistry.cs](EonVientiane.Server/ServerModuleRegistry.cs)
+- 签发入口： [EonVientiane.Server/Program.cs](EonVientiane.Server/Program.cs)
+- 模块声明：各模块项目根目录 `eon-module.json`
+
+这保证了“一个物品一个独立项目”的发放模型：新增模块无需改服务端签发逻辑代码。
+
+### 独立道具项目
+
+每个具体道具都是一个独立项目，由服务端签发给客户端。
+
+宿主只要求它们满足同一组导出约定。
+
+## 最小接口约定方向
+
+当前尚未落地正式战斗道具约定，但建议保持以下原则：
+
+### 饰品模块建议暴露的能力
+
+- `GetMetadata()`
+- `OnBattleStart(...)`
+- `OnOwnerTurnStart(...)`
+- `OnOwnerTurnEnd(...)`
+- `OnBeforeDamageTaken(...)`
+- `ReadEffect(...)`
+- `WriteEffect(...)`
+
+### 骰子模块建议暴露的能力
+
+- `GetMetadata()`
+- `CanUseActive(...)`
+- `ExecuteActive(...)`
+- `CanUsePassive(...)`
+- `ExecutePassive(...)`
+- `ReadEffect(...)`
+- `WriteEffect(...)`
+
+### 虚拟玩家行动约定（新增）
+
+战斗宿主不负责行动决策；非本地行动方应由外部 Runtime 作为“虚拟玩家”给出行动指令。
+
+推荐导出：
+
+- `DecideBattleAction(Dictionary<string, object> context)`
+- 兼容别名：`GetBattleAction(...)`、`DecideAction(...)`
+
+返回值为 `Dictionary<string, object>`，建议字段：
+
+- `action`: `active` 或 `pass`
+- `target`: 目标 `unitId` 或显示名（可选）
+- `requestedDiceName` / `dice` / `diceName` / `itemId`: 回合要使用的骰子标识（主动/被动回合均可使用）
+- `attack` 或 `ATKP`: 直接给定本回合攻击值（可选）
+
+建议同时读取 `context["phase"]`（`active` / `passive`）来决定选择何种骰子。
+
+若未提供有效行动指令，宿主将视为“自动方本回合跳过”。
+
+### 通用 Hook 约定（新增）
+
+为避免“某个道具专属特判”，战斗宿主支持道具通过反射注册通用 Hook：
+
+- `OnBattleHook(Dictionary<string, object> context)`
+- 或 `OnHook(Dictionary<string, object> context)`（兼容别名）
+
+当前宿主已接入“函数调用级”钩子事件：
+
+- `hook.eventName = "function.invoke"`
+- `hook.stage = "before" | "after"`
+- `hook.elapsedMs = 当前行动方本回合已过去毫秒`
+- `targetCall.methodName = 被调用函数名`
+- `targetCall.itemId/name/kind = 目标道具信息（若存在）`
+- `arguments = 调用参数数组`
+
+其中命令闸门也统一映射为“合成函数调用”：
+
+- `BattleCommand.active`
+- `BattleCommand.pass`
+
+道具 Hook 返回值建议为 `Dictionary<string, object>`，可包含：
+
+- `cancel: bool`：取消本次命令
+- `forcePass: bool`：强制将当前命令转为“跳过回合”
+- `skipOriginal: bool`（或 `skip`）：跳过原函数执行
+- `result` / `overrideResult`：覆写函数返回值
+- `message: string`：写入战斗日志
+- `effects: []`：按效果模块约定写入效果存储区
+
+这意味着“对方每步超时自动跳过”应由道具在 Hook 中根据 `elapsedMs` 自主决策，而不是由宿主内置固定道具逻辑。
+
+此外，宿主还暴露了“假设目标道具函数 Hook”入口：
+
+- `BattleApi.InvokeAssumedItemFunctionHook(...)`
+
+可用于“假设对方存在某道具，并 Hook 到该道具某函数”的场景；上下文会在 `extra.assumedTarget` 中标记假设目标。
+
+### 效果系统建议能力
+
+效果系统建议至少支持以下访问方式：
+
+- 按战斗读取
+- 按单位读取
+- 按来源道具读取
+- 设置值
+- 删除值
+- 枚举指定作用域下的键
+
+建议效果键使用字符串，值使用可序列化对象或 JSON 字符串。
+
+### 返回值原则
+
+建议统一返回可序列化数据：
+
+- `string`
+- `bool`
+- `Dictionary<string, object>`
+- JSON 字符串
+
+这样更适合当前基于反射与动态加载的宿主结构。
+
+## 当前状态总结
+
+### 已完成
+
+- 账户与加密逻辑包体系
+- 服务端签发与客户端热加载
+- 基础模块化命令分发
+- 成就模块下发流程
+- 独立战斗模块（`EonVientiane.BattleModule`）
+- 独立网络对战模块（`EonVientiane.NetworkBattleModule`，支持房间/准备/分组）
+- 独立效果模块（`EonVientiane.EffectModule`）
+- 函数调用级通用 Hook（before/after，支持返回值覆写与跳过原函数）
+- 假设目标道具函数 Hook 入口（用于虚拟/假设目标拦截）
+- 统一战斗入口（`level / pvp`）
+- 关卡敌方账号化（关卡敌人以特殊账号形式参与同一战斗接口）
+- 战斗上下文中敌方道具表默认隐藏，仅暴露公开战斗变量与效果能力
+- 战斗结束后自动上报服务端签验并返回客户端本地存储
+- 成就签验请求可携带客户端近几场已签验战斗记录，服务端会进行哈希与签名复核后读取用于条件认证
+- 背包不再设容量上限（仅展示当前数量）
+- 装备规则已落地：最多装备 `8` 个骰子；饰品采用槽位制，默认最多 `12` 槽，且允许饰品使用负槽位（提供额外槽位）
+- 装备跨模块传递改为字典/JSON 对象约定，已移除固定装备类型依赖
+- 首个独立骰子道具模块 `EonVientiane.Item.Dice.D6`（`D6`）已实现并接入服务端签发链路
+- 首个独立饰品道具模块 `EonVientiane.Item.Accessory.Self`（`自我`，饰品槽消耗 `2`，战斗开始提供 `10HP`）已实现并接入服务端签发链路
+- 独立 GUI 模块 `EonVientiane.GUI` 已接入：
+	- 左上固定栏位按钮承载 Core/CLI 指令（如 `help`/`account`/`sync`）
+	- 右侧为模块菜单区，每个模块可提供独立小菜单与按钮布局
+	- GUI 按钮与输入框均只做“向 CLI 发送文本命令”，不重复实现业务逻辑
+	- 背包模块已在 `EonVientiane.InventoryModule` 内直接提供只读列表视图
+	- 装备/卸下交互由 `EonVientiane.EquipmentModule` 提供独立 GUI（`EquipmentGuiMenuProvider`）
+## GUI 模块说明（新增）
+
+`EonVientiane.GUI` 的原则是“UI 外壳 + CLI 指令桥接”：
+
+- GUI 中所有按钮/输入行为都会转为 CLI 文本输入。
+- 功能来源仍是 CLI + 远程运行时模块，不在 GUI 中复制命令业务。
+- GUI 负责承载未来插图、动画、动效等展示层能力。
+- GUI 面向玩家使用，默认提供登录/注册表单与按钮化操作，不暴露可直接输入原始 CLI 文本的主操作框。
+
+### 布局约定
+
+- 左上固定命令栏：放置 Core/CLI 常用命令按钮。
+- 右侧模块菜单栏：每个模块一个小菜单卡片，按钮内容与排列由模块定义。
+- 未登录时右侧显示账户登录/创建入口；登录成功后切换为模块菜单区。
+
+### 模块菜单扩展约定
+
+GUI 提供以下菜单模型（位于 `EonVientiane.GUI/GuiMenus/GuiMenuContracts.cs`）：
+
+- `GuiMenuDefinition`
+- `GuiMenuButton`
+- `GuiMenuLayout`（如纵向、双列）
+
+启动 GUI 时会扫描当前进程已加载的业务模块程序集，寻找约定方法 `GetGuiMenuDefinition()`。
+
+其中 `GetGuiMenuDefinition()` 可返回 `GuiMenuDefinition`，也可返回字典对象（字段：`ModuleId`、`Title`、`Layout`、`Order`、`Buttons`）。
+
+已实现的模块内菜单：
+
+| 功能模块 | 菜单提供类 | 菜单内容 |
+|---------|-----------|---------|
+| [EonVientiane.InventoryModule](EonVientiane.InventoryModule) | `InventoryGuiMenuProvider` | 查看背包（`inv`）|
+| [EonVientiane.EquipmentModule](EonVientiane.EquipmentModule) | `EquipmentGuiMenuProvider` | 装备管理（装备 / 卸下）|
+
+如需为某个功能模块增加 GUI 菜单，默认按以下约定直接在该功能模块内实现：
+
+1. 在功能模块中新增 `public` 类型，提供无参 `GetGuiMenuDefinition()`。
+2. 返回值至少包含：模块 ID、标题、按钮列表（按钮文本 + CLI 命令）。
+3. 业务逻辑仍走 CLI 命令链路，不在 GUI 中重复实现。
+
+主区域列表内容可由模块额外提供 `GetGuiContentDefinition(...)`，用于在 GUI 中间区域显示结构化列表或卡片内容。
+
+当前装备 GUI 布局约定：
+
+- 左侧：未装备物品区，按“骰子 / 饰品”分两列显示
+- 右上：固定 `8` 个骰子位
+- 右下：饰品位概览与已装备饰品列表
+- 装备与卸下按钮由 `EquipmentModule` 直接提供，对应命令仍走 `equip` / `unequip`
+
+### 核心模块同步说明（新增）
+
+为避免“旧账号已解锁过模块，但后续新增 GUI / 功能后无法自动更新”的问题，当前基础功能模块已改为在 `/api/logic/connect` 阶段自动参与同步（`issueOnConnect: true`）。
+
+同步是否重新下发仍取决于版本比较：
+
+- 本地缺失：直接下发
+- 服务端版本更高：重新下发
+- 版本未提升：不会重复下发
+
+因此，模块代码有实际更新时，必须同步提升对应 `eon-module.json` 的 `version`。
+### 战斗签验链路（当前实现）
+
+1. `BattleModule` 在战斗结束时生成战斗过程记录（含 battleId、回合、单位快照、日志）。
+2. `PlayerModule` 读取该记录并调用服务端 `POST /api/logic/battle/verify`。
+3. 服务端对记录进行基础结构校验，计算记录哈希并使用服务端私钥签名。
+4. 服务端返回签验结果（记录原文 + 哈希 + 签名），并在服务端 `logic-store/battle-records/<userId>/` 留存。
+5. 客户端将签验结果落盘到本地 `.../LogicPackages/battle-records/` 目录。
+
+### 成就签验读取战斗记录链路（当前实现）
+
+1. 客户端发起成就签验时，会从本地 `.../LogicPackages/battle-records/` 读取近几场战斗签验结果并随请求上送。
+2. 服务端仅接受与当前 `userId` 一致且可通过“记录哈希 + 服务端公钥验签”的战斗记录。
+3. 通过复核的记录可被服务端用于成就条件认证（当前能力已就绪，具体规则可在后续成就模块中扩展）。
+
+### 尚未完成
+
+- 独立物品发现机制
+- 物品级别的服务端注册与签发
+- 战斗用统一约定数据结构
+
+## 构建
+
+### 构建整个解决方案
 
 ```bash
-dotnet run --project EonVientiane/EonVientiane.csproj
+dotnet build EonVientiane.slnx
 ```
 
-### 4) 使用一键本地测试脚本
+### 运行 CLI
 
 ```bash
-chmod +x start_local_test.sh
-./start_local_test.sh
+dotnet run --project EonVientiane.CLI/EonVientiane.CLI.csproj
 ```
 
-脚本会：
-- 重新构建 Shared / 客户端 / 服务端
-- 启动 1 个服务端（默认 `localhost:7777`）
-- 启动 3 个客户端进程
-- 在 `test_longterm/` 与 `test_client_*` 目录保留本地测试数据
-
-## CLI 客户端用法（自动化测试）
-
-查看帮助：
+### 运行 GUI
 
 ```bash
-dotnet run --project EonVientianeCliClient/EonVientianeCliClient.csproj -- --help
+dotnet run --project EonVientiane.GUI/EonVientiane.GUI.csproj
 ```
 
-常用示例：
+### 运行 Server
 
 ```bash
-# 注册
-dotnet run --project EonVientianeCliClient/EonVientianeCliClient.csproj -- \
-  register --username user1 --password pass1 --email user1@test.local
-
-# 登录
-dotnet run --project EonVientianeCliClient/EonVientianeCliClient.csproj -- \
-  login --username user1 --password pass1
-
-# 查询背包
-dotnet run --project EonVientianeCliClient/EonVientianeCliClient.csproj -- \
-  inventory --username user1 --password pass1
+dotnet run --project EonVientiane.Server/EonVientiane.Server.csproj
 ```
 
-更多命令见 [docs/CLI.md](docs/CLI.md)。
+## 文档说明
 
-## 数据目录与持久化
+旧的说明文档已移除，当前仓库仅保留本文件作为最新架构说明。
 
-- 根目录 `data/`
-  - `users/users.json`：用户数据
-  - `wallets/`：钱包与密钥文件
-- 测试脚本目录
-  - `test_longterm/`：服务端长期测试数据目录
-  - `test_client_1/2/3/`：客户端测试数据目录（运行脚本后自动创建）
-- 客户端本地加密数据（默认）
-  - `data/local_player_data/*.edat`
-
-## 文档索引
-
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：系统架构与模块关系
-- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)：开发流程、构建发布与排障
-- [docs/CLI.md](docs/CLI.md)：CLI 参数、命令与脚本集成建议
-
-## 许可证
-
-见 [LICENSE](LICENSE)。
+后续若开始实现战斗系统，应继续在本文件基础上更新，不再新增相互冲突的并行说明文档。
